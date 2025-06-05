@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">  <!-- 新增此行 -->
+    <title>WiFi Configuration</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        .input { display: block; margin-top: 10px; }
+        .input span { width: 100px; float: left; height: 36px; line-height: 36px; }
+        .input input, .input select { height: 30px; width: 200px; }
+        .btn { width: 120px; height: 35px; background-color: #000; color: #fff; margin-top: 15px; margin-left: 100px; }
+    </style>
+</head>
+<body>
+    <form method="POST" action="/configwifi">
+        <label class="input">
+            <span>WiFi SSID</span>
+            <select id="wifi-select" name="ssid">
+                <option value="">正在加载...</option>
+            </select>
+        </label>
+        <label class="input">
+            <span>WiFi密码</span>
+            <input type="password" name="password" required>
+        </label>
+        <input class="btn" type="submit" value="连接">
+    </form>
+
+    <script>
+        // 页面加载时自动请求WiFi列表
+        window.onload = function () {
+            const select = document.getElementById('wifi-select');
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 5000); // 5秒超时
+
+            fetch('http://192.168.4.1/get_wifi_list', { signal: controller.signal })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error("HTTP error " + response.status);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    clearTimeout(timeout);
+                    select.innerHTML = ''; // 清空加载项
+                    if (!data.wifi_list || data.wifi_list.length === 0) {
+                        select.innerHTML = '<option value="">未发现WiFi</option>';
+                        return;
+                    }
+                    data.wifi_list.forEach(ssid => {
+                        const option = document.createElement('option');
+                        option.value = ssid;
+                        option.textContent = ssid;
+                        select.appendChild(option);
+                    });
+                })
+                .catch(error => {
+                    console.error('获取WiFi列表失败:', error);
+                    select.innerHTML = '<option value="">加载失败</option>';
+                });
+        };
+    </script>
+</body>
+</html>

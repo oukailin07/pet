@@ -1,0 +1,19 @@
+这份代码实现了强制门户配网
+    即当手机连接esp32 发出的热点时，手机会自己跳转到htlm页面进行配网（如果没有跳转在网页上输入192.168.4.1）
+
+
+    执行流程
+        手机连接 ESP32 热点
+                ↓
+        系统自动访问 /generate_204 或 /hotspot-detect.html
+                ↓
+        ESP32 返回跳转或 HTML 页面 => 弹出认证网页
+                ↓
+        显示配置 HTML 页面（通过 HTTP GET / 或 DNS 劫持）
+                ↓
+        用户提交 WiFi 配置信息（HTTP POST /configwifi）
+                ↓
+        ESP32 处理，尝试连接目标 WiFi
+                ↓
+        将获取到的wifi信息保存在nvs里面，软件重启板子，查询是否存储wifi信息来决定要不要连接
+    
