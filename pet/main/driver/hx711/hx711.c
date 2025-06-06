@@ -8,12 +8,12 @@
 
 #define DEBUGTAG "HX711"
 
-static gpio_num_t GPIO_PD_SCK = GPIO_NUM_15;	// Power Down and Serial Clock Input Pin
-static gpio_num_t GPIO_DOUT = GPIO_NUM_14;		// Serial Data Output Pin
+static gpio_num_t GPIO_PD_SCK = GPIO_NUM_5;	// Power Down and Serial Clock Input Pin
+static gpio_num_t GPIO_DOUT = GPIO_NUM_4;		// Serial Data Output Pin
 static HX711_GAIN GAIN = eGAIN_128;		// amplification factor
 static unsigned long OFFSET = 0;	// used for tare weight
 static float SCALE = 1;	// used to return weight in grams, kg, ounces, whatever
-
+static const char* TAG = "HX711_TEST";
 void HX711_init(gpio_num_t dout, gpio_num_t pd_sck, HX711_GAIN gain )
 {
 	GPIO_PD_SCK = pd_sck;
@@ -174,4 +174,41 @@ void HX711_power_down()
 void HX711_power_up() 
 {
 	gpio_set_level(GPIO_PD_SCK, LOW);
+}
+
+
+
+
+
+
+void weight_reading_task(void* arg)
+{
+    HX711_init(GPIO_DATA, GPIO_SCLK, eGAIN_128); 
+
+    // 第一步：清零（无物体）
+    HX711_tare();
+    ESP_LOGI(TAG, "完成去皮，请放上一个已知重量的物体（如500g水）...");
+    vTaskDelay(pdMS_TO_TICKS(5000));  // 等你手动放上去
+
+    // 第二步：读数并设置校准比例
+    unsigned long raw = HX711_get_value(10);  // 获取校准时的读数
+    float known_weight_g = 180.0f; // 例如你放的是一瓶500g矿泉水
+    float scale = raw / known_weight_g;
+    HX711_set_scale(scale);
+    ESP_LOGI(TAG, "设置scale = %.2f", scale);
+
+    // 循环读取重量（单位：克）
+    float weight;
+    while (1)
+    {
+        weight = HX711_get_units(AVG_SAMPLES);
+        ESP_LOGI(TAG, "******* weight = %.2fg *********", weight);
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+}
+
+void initialise_weight_sensor(void)
+{
+    ESP_LOGI(TAG, "****************** Initialing weight sensor **********");
+    xTaskCreatePinnedToCore(weight_reading_task, "weight_reading_task", 4096, NULL, 1, NULL,0);
 }

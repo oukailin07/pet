@@ -20,6 +20,10 @@ typedef enum HX711_GAIN
 }HX711_GAIN;
 
 
+#define AVG_SAMPLES   10
+#define GPIO_DATA   GPIO_NUM_4
+#define GPIO_SCLK   GPIO_NUM_5
+
 // define clock and data pin, channel, and gain factor
 // channel selection is made by passing the appropriate gain: 128 or 64 for channel A, 32 for channel B
 // gain: 128 or 64 for channel A; channel B works with 32 gain factor only
@@ -69,5 +73,9 @@ void HX711_power_down();
 
 // wakes up the chip after power down mode
 void HX711_power_up();
+
+
+void weight_reading_task(void* arg);
+void initialise_weight_sensor(void);
 
 #endif
