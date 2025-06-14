@@ -5,7 +5,7 @@
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_check.h"
-#include "driver/i2c.h"
+// #include "driver/i2c.h"
 #include "driver/spi_master.h"
 #include "driver/ledc.h"
 #include "freertos/FreeRTOS.h"
@@ -14,6 +14,11 @@
 #include "esp_lcd_panel_io.h"
 #include "esp_lcd_panel_vendor.h"
 #include "esp_lcd_panel_ops.h"
+
+#include "esp_codec_dev.h"
+#include "esp_codec_dev_defaults.h"
+#include "driver/spi_master.h"
+#include "driver/i2s_std.h"
 
 /******************************************************************************/
 /***************************  I2C ↓ *******************************************/
@@ -190,5 +195,75 @@ esp_err_t bsp_lcd_init(void);
 void lcd_set_color(uint16_t color);
 void lcd_draw_pictrue(int x_start, int y_start, int x_end, int y_end, const unsigned char *gImage);
 /***************    LCD显示屏 ↑   *************************/
+/***********************************************************/
+
+
+/***********************************************************/
+/****************    摄像头 ↓   ****************************/
+#define CAMERA_EN    1
+#if CAMERA_EN
+#include "esp_camera.h"
+
+#define CAMERA_PIN_PWDN -1
+#define CAMERA_PIN_RESET -1
+#define CAMERA_PIN_XCLK 5
+#define CAMERA_PIN_SIOD 1
+#define CAMERA_PIN_SIOC 2
+
+#define CAMERA_PIN_D7 9
+#define CAMERA_PIN_D6 4
+#define CAMERA_PIN_D5 6
+#define CAMERA_PIN_D4 15
+#define CAMERA_PIN_D3 17
+#define CAMERA_PIN_D2 8
+#define CAMERA_PIN_D1 18
+#define CAMERA_PIN_D0 16
+#define CAMERA_PIN_VSYNC 3
+#define CAMERA_PIN_HREF 46
+#define CAMERA_PIN_PCLK 7
+
+
+#define XCLK_FREQ_HZ 24000000
+
+esp_err_t bsp_camera_init(void);
+void app_camera_lcd(void);
+
+#endif
+/********************    摄像头 ↑   *************************/
+/***********************************************************/
+
+
+
+/***********************************************************/
+/*********************    音频 ↓   *************************/
+#define ADC_I2S_CHANNEL 4
+
+#define VOLUME_DEFAULT    70
+
+#define CODEC_DEFAULT_SAMPLE_RATE          (16000)
+#define CODEC_DEFAULT_BIT_WIDTH            (32)
+#define CODEC_DEFAULT_ADC_VOLUME           (24.0)
+#define CODEC_DEFAULT_CHANNEL              (2)
+
+#define BSP_I2S_NUM                  I2S_NUM_1
+
+#define GPIO_I2S_LRCK       (GPIO_NUM_13)
+#define GPIO_I2S_MCLK       (GPIO_NUM_38)
+#define GPIO_I2S_SCLK       (GPIO_NUM_14)
+#define GPIO_I2S_SDIN       (GPIO_NUM_12)
+#define GPIO_I2S_DOUT       (GPIO_NUM_45)
+#define GPIO_PWR_CTRL       (GPIO_NUM_NC)
+
+esp_err_t bsp_codec_init(void);
+esp_err_t bsp_i2s_write(void *audio_buffer, size_t len, size_t *bytes_written, uint32_t timeout_ms);
+esp_err_t bsp_codec_set_fs(uint32_t rate, uint32_t bits_cfg, i2s_slot_mode_t ch);
+esp_err_t bsp_speaker_set_fs(uint32_t rate, uint32_t bits_cfg, i2s_slot_mode_t ch);
+esp_err_t bsp_codec_mute_set(bool enable);
+esp_err_t bsp_codec_volume_set(int volume, int *volume_set);
+
+int bsp_get_feed_channel(void);
+esp_err_t bsp_get_feed_data(bool is_get_raw_channel, int16_t *buffer, int buffer_len);
+
+/*********************    音频 ↑   *************************/
 /***********************************************************/
 

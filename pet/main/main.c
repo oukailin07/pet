@@ -23,7 +23,7 @@
 #include "driver/gpio.h"
 #include "esp_log.h"
 #include "hx711.h"
-
+#include "motor.h"
 
 
 
@@ -31,6 +31,15 @@ void app_main(void)
 {
     nvs_flash_init();
     //initialise_weight_sensor(); //使用HX711传感器
+    motor_init();
+    motor_control(MOTOR_FORWARD);
+    while (1)
+    {
+        
+        /* code */
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+    }
+    
 }
 
  
