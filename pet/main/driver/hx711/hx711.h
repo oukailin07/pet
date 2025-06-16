@@ -21,8 +21,8 @@ typedef enum HX711_GAIN
 
 
 #define AVG_SAMPLES   10
-#define GPIO_DATA   GPIO_NUM_4
-#define GPIO_SCLK   GPIO_NUM_5
+#define GPIO_DATA   GPIO_NUM_17
+#define GPIO_SCLK   GPIO_NUM_18
 
 // define clock and data pin, channel, and gain factor
 // channel selection is made by passing the appropriate gain: 128 or 64 for channel A, 32 for channel B

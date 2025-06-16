@@ -8,6 +8,32 @@ static i2s_chan_handle_t i2s_rx_chan = NULL; // 接收通道
 static const audio_codec_data_if_t *i2s_data_if = NULL;  /* Codec data interface */
 
 i2c_master_bus_handle_t bus_handle;
+
+esp_err_t bsp_i2c_init(void)
+{
+    // i2c_config_t i2c_conf = {
+    //     .mode = I2C_MODE_MASTER,
+    //     .sda_io_num = BSP_I2C_SDA,
+    //     .sda_pullup_en = GPIO_PULLUP_ENABLE,
+    //     .scl_io_num = BSP_I2C_SCL,
+    //     .scl_pullup_en = GPIO_PULLUP_ENABLE,
+    //     .master.clk_speed = BSP_I2C_FREQ_HZ
+    // };
+    // i2c_param_config(BSP_I2C_NUM, &i2c_conf);
+
+    // return i2c_driver_install(BSP_I2C_NUM, i2c_conf.mode, 0, 0, 0);
+
+    i2c_master_bus_config_t bus_cfg = {
+        .i2c_port = BSP_I2C_NUM,
+        .sda_io_num = BSP_I2C_SDA,
+        .scl_io_num = BSP_I2C_SCL,
+        .clk_source = I2C_CLK_SRC_DEFAULT, // 默认时钟源
+        .glitch_ignore_cnt = 7,            // 滤波阈值
+        .flags.enable_internal_pullup = true // 启用内部上拉
+    };
+    return i2c_new_master_bus(&bus_cfg, &bus_handle);
+}
+
 // I2S总线初始化
 esp_err_t bsp_audio_init(void)
 {
