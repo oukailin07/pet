@@ -75,6 +75,19 @@ void app_main(void)
     motor_init();
     motor_control(MOTOR_FORWARD);
     esp_codec_dev_handle_t codec_dev = bsp_audio_codec_speaker_microphone_init();
+    if (codec_dev == NULL) {
+        ESP_LOGE(TAG, "Codec init failed!");
+        return;
+    }
+
+    gpio_config_t io_conf = {};
+    io_conf.intr_type = GPIO_INTR_DISABLE;
+    io_conf.mode = GPIO_MODE_OUTPUT;
+    io_conf.pin_bit_mask = (1ULL<<GPIO_NUM_9);
+    io_conf.pull_down_en = 0;
+    io_conf.pull_up_en = 0;
+    gpio_config(&io_conf);
+    gpio_set_level(GPIO_PWR_CTRL, 1);  // 你这配置是高电平使能
     //led_strip_handle_t led_strip = configure_led();
     ESP_LOGI(TAG, "Opening PCM file...");
     FILE *fp = fopen(PCM_FILE_PATH, "rb");
@@ -86,14 +99,20 @@ void app_main(void)
     esp_codec_dev_sample_info_t fs_cfg = {
         .sample_rate = 8000,
         .channel = 1,    // 单声道
+        .bits_per_sample = 16 
     };
     ESP_ERROR_CHECK(esp_codec_dev_open(codec_dev, &fs_cfg));
     uint8_t buf[512];
     size_t bytes_read;
-
+    esp_codec_dev_set_out_vol(codec_dev, 80); // 设置音量，0~100
+    esp_codec_dev_write(codec_dev, NULL, 0);
     ESP_LOGI(TAG, "Starting PCM playback");
     while ((bytes_read = fread(buf, 1, sizeof(buf), fp)) > 0) {
-        esp_codec_dev_write(codec_dev, buf, bytes_read);
+        ESP_LOGI(TAG, "Read %d bytes", bytes_read);
+        esp_err_t err =  esp_codec_dev_write(codec_dev, buf, bytes_read);
+            if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to write audio data: %s", esp_err_to_name(err));
+        }
 
     }
 

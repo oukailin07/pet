@@ -49,7 +49,7 @@ static void motor_crl_init(void)
     //set as output mode
     io_conf.mode = GPIO_MODE_OUTPUT;
     //bit mask of the pins that you want to set,e.g.GPIO18/19
-    io_conf.pin_bit_mask = (1UL<<GPIO_NUM_45) | (1UL<<GPIO_NUM_48);
+    io_conf.pin_bit_mask = (1ULL<<GPIO_NUM_45) | (1ULL<<GPIO_NUM_48);
     //disable pull-down mode
     io_conf.pull_down_en = 0;
     //disable pull-up mode

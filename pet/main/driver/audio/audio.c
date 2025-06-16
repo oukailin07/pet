@@ -50,16 +50,16 @@ esp_err_t bsp_audio_init(void)
 
     /* Setup I2S channels */
     const i2s_std_config_t std_cfg_default = {
-        .clk_cfg  = I2S_STD_CLK_DEFAULT_CONFIG(16000),   // 采样率16000
-        .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(32, I2S_SLOT_MODE_STEREO),  // 32位 2通道
-        .gpio_cfg = { 
-            .mclk = GPIO_I2S_MCLK, 
-            .bclk = GPIO_I2S_SCLK, 
-            .ws   = GPIO_I2S_LRCK, 
-            .dout = GPIO_I2S_DOUT, 
-            .din  = GPIO_I2S_SDIN,
-        },
-    };
+    .clk_cfg  = I2S_STD_CLK_DEFAULT_CONFIG(8000), // 与你的 PCM 保持一致
+    .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(16, I2S_SLOT_MODE_MONO),
+    .gpio_cfg = { 
+        .mclk = GPIO_I2S_MCLK, 
+        .bclk = GPIO_I2S_SCLK, 
+        .ws   = GPIO_I2S_LRCK, 
+        .dout = GPIO_I2S_DOUT, 
+        .din  = GPIO_I2S_SDIN,
+    },
+};
 
     if (i2s_tx_chan != NULL) {
         ESP_GOTO_ON_ERROR(i2s_channel_init_std_mode(i2s_tx_chan, &std_cfg_default), err, TAG, "I2S channel initialization failed");
@@ -106,7 +106,7 @@ esp_codec_dev_handle_t bsp_audio_codec_speaker_microphone_init(void)
 
     audio_codec_i2c_cfg_t i2c_cfg = {
         .port = BSP_I2C_NUM,
-        .addr = ES8311_CODEC_DEFAULT_ADDR,
+        .addr = 0x32,
         .bus_handle = bus_handle,
     };
     const audio_codec_ctrl_if_t *i2c_ctrl_if = audio_codec_new_i2c_ctrl(&i2c_cfg);
@@ -120,7 +120,7 @@ esp_codec_dev_handle_t bsp_audio_codec_speaker_microphone_init(void)
     es8311_codec_cfg_t es8311_cfg = {
         .ctrl_if = i2c_ctrl_if,
         .gpio_if = gpio_if,
-        .codec_mode = ESP_CODEC_DEV_WORK_MODE_BOTH,
+        .codec_mode = ESP_CODEC_DEV_WORK_MODE_DAC,
         .pa_pin = GPIO_PWR_CTRL,
         .pa_reverted = false,
         .master_mode = false,
@@ -134,7 +134,7 @@ esp_codec_dev_handle_t bsp_audio_codec_speaker_microphone_init(void)
     assert(es8311_dev);
 
     esp_codec_dev_cfg_t codec_dev_cfg = {
-        .dev_type = ESP_CODEC_DEV_TYPE_IN_OUT,
+        .dev_type = ESP_CODEC_DEV_TYPE_OUT,
         .codec_if = es8311_dev,
         .data_if = i2s_data_if,
     };
