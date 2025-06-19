@@ -1,247 +1,133 @@
 #include "audio.h"
+#include "audio_player.h"
+#include "driver/gpio.h"
+#include "file_iterator.h"
 static const char *TAG = "audio";
-static esp_codec_dev_handle_t play_dev_handle;    // speaker句柄
-static esp_codec_dev_handle_t record_dev_handle;  // microphone句柄
 
-static i2s_chan_handle_t i2s_tx_chan = NULL; // 发送通道
-static i2s_chan_handle_t i2s_rx_chan = NULL; // 接收通道
-static const audio_codec_data_if_t *i2s_data_if = NULL;  /* Codec data interface */
 
-i2c_master_bus_handle_t bus_handle;
+i2s_chan_handle_t tx_handle = NULL; // 发送通道句柄
 
-esp_err_t bsp_i2c_init(void)
-{
-    // i2c_config_t i2c_conf = {
-    //     .mode = I2C_MODE_MASTER,
-    //     .sda_io_num = BSP_I2C_SDA,
-    //     .sda_pullup_en = GPIO_PULLUP_ENABLE,
-    //     .scl_io_num = BSP_I2C_SCL,
-    //     .scl_pullup_en = GPIO_PULLUP_ENABLE,
-    //     .master.clk_speed = BSP_I2C_FREQ_HZ
-    // };
-    // i2c_param_config(BSP_I2C_NUM, &i2c_conf);
+void i2s_speaker_init() {
+    i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(SPEAKER_I2S_NUM, I2S_ROLE_MASTER);
+    i2s_new_channel(&chan_cfg, &tx_handle, NULL); // 只初始化发送通道
 
-    // return i2c_driver_install(BSP_I2C_NUM, i2c_conf.mode, 0, 0, 0);
-
-    i2c_master_bus_config_t bus_cfg = {
-        .i2c_port = BSP_I2C_NUM,
-        .sda_io_num = BSP_I2C_SDA,
-        .scl_io_num = BSP_I2C_SCL,
-        .clk_source = I2C_CLK_SRC_DEFAULT, // 默认时钟源
-        .glitch_ignore_cnt = 7,            // 滤波阈值
-        .flags.enable_internal_pullup = true // 启用内部上拉
+    i2s_std_config_t std_cfg = {
+        .clk_cfg = {
+            .sample_rate_hz = I2S_SPEAKER_SAMPLE_RATE, 
+            .clk_src = I2S_CLK_SRC_DEFAULT, // 默认时钟源
+            .mclk_multiple = I2S_MCLK_MULTIPLE_384, // MCLK 倍频系数
+        },
+        .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_SPEAKER_BITS_PER_SAMPLE, I2S_SLOT_MODE_MONO),
+        .gpio_cfg = {
+            .mclk = I2S_GPIO_UNUSED,
+            .bclk = SPEAKER_I2S_BCK_IO,
+            .ws = SPEAKER_I2S_WS_IO,
+            .dout = SPEAKER_I2S_DO_IO,
+            .din = SPEAKER_I2S_DI_IO,
+            .invert_flags = {
+                .mclk_inv = false,
+                .bclk_inv = false,
+                .ws_inv = false,
+            },
+        },
     };
-    return i2c_new_master_bus(&bus_cfg, &bus_handle);
+    std_cfg.slot_cfg.slot_mask = I2S_STD_SLOT_LEFT; // 修改为左声道
+    std_cfg.slot_cfg.bit_order_lsb = false;          // 低位先行,这边我不确定,但采集的数据确实受环境声音的改变而改变,高位先行却没有
+ 
+    i2s_channel_init_std_mode(tx_handle, &std_cfg);
+    i2s_channel_enable(tx_handle);
 }
 
-// I2S总线初始化
-esp_err_t bsp_audio_init(void)
+
+i2s_chan_handle_t rx_handle = NULL;
+record_info_t record_info = {};
+
+esp_err_t hal_i2s_microphone_init(i2s_microphone_config_t config)
+{
+    esp_err_t ret_val = ESP_OK;
+    i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(config.i2s_num, I2S_ROLE_MASTER);
+
+    ret_val |= i2s_new_channel(&chan_cfg, NULL, &rx_handle);
+    i2s_std_config_t std_cfg = {
+        .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(config.sample_rate),
+        .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(config.bits_per_sample, I2S_SLOT_MODE_MONO),
+        .gpio_cfg = {
+            .mclk = GPIO_NUM_NC,
+            .bclk = config.bclk_pin,
+            .ws = config.ws_pin,
+            .dout = GPIO_NUM_NC,
+            .din = config.din_pin,
+            .invert_flags = {
+                .mclk_inv = false,
+                .bclk_inv = false,
+                .ws_inv = false,
+            },
+        },
+    };
+
+    std_cfg.slot_cfg.slot_mask = I2S_STD_SLOT_LEFT;
+    ret_val |= i2s_channel_init_std_mode(rx_handle, &std_cfg);
+    ret_val |= i2s_channel_enable(rx_handle);
+    record_info.i2s_config = config;
+    return ret_val;
+}
+
+esp_err_t hal_i2s_get_data(int16_t *buffer, int buffer_len)
 {
     esp_err_t ret = ESP_FAIL;
-    if (i2s_tx_chan && i2s_rx_chan) {
-        /* Audio was initialized before */
-        return ESP_OK;
-    }
+    size_t bytes_read;
+    int audio_chunksize = buffer_len / sizeof(int32_t);
+    ret = i2s_channel_read(rx_handle, buffer, buffer_len, &bytes_read, portMAX_DELAY);
 
-    /* Setup I2S peripheral */
-    i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(BSP_I2S_NUM, I2S_ROLE_MASTER);
-    chan_cfg.auto_clear = true; // Auto clear the legacy data in the DMA buffer
-    ESP_ERROR_CHECK(i2s_new_channel(&chan_cfg, &i2s_tx_chan, &i2s_rx_chan));
-
-    /* Setup I2S channels */
-    const i2s_std_config_t std_cfg_default = {
-    .clk_cfg  = I2S_STD_CLK_DEFAULT_CONFIG(8000), // 与你的 PCM 保持一致
-    .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(16, I2S_SLOT_MODE_MONO),
-    .gpio_cfg = { 
-        .mclk = GPIO_I2S_MCLK, 
-        .bclk = GPIO_I2S_SCLK, 
-        .ws   = GPIO_I2S_LRCK, 
-        .dout = GPIO_I2S_DOUT, 
-        .din  = GPIO_I2S_SDIN,
-    },
-};
-
-    if (i2s_tx_chan != NULL) {
-        ESP_GOTO_ON_ERROR(i2s_channel_init_std_mode(i2s_tx_chan, &std_cfg_default), err, TAG, "I2S channel initialization failed");
-        ESP_GOTO_ON_ERROR(i2s_channel_enable(i2s_tx_chan), err, TAG, "I2S enabling failed");
-    }
-    if (i2s_rx_chan != NULL) {
-        ESP_GOTO_ON_ERROR(i2s_channel_init_std_mode(i2s_rx_chan, &std_cfg_default), err, TAG, "I2S channel initialization failed");
-        ESP_GOTO_ON_ERROR(i2s_channel_enable(i2s_rx_chan), err, TAG, "I2S enabling failed");
-    }
-
-    audio_codec_i2s_cfg_t i2s_cfg = {
-        .port = BSP_I2S_NUM,
-        .rx_handle = i2s_rx_chan,
-        .tx_handle = i2s_tx_chan,
-    };
-    i2s_data_if = audio_codec_new_i2s_data(&i2s_cfg);
-    if (i2s_data_if == NULL) {   
-        goto err;
-    }   
-
-    return ESP_OK;
-
-err:
-    if (i2s_tx_chan) {
-        i2s_del_channel(i2s_tx_chan);
-    }
-    if (i2s_rx_chan) {
-        i2s_del_channel(i2s_rx_chan);
+    int32_t *tmp_buff = (int32_t *)buffer;
+    for (int i = 0; i < audio_chunksize; i++) {
+        tmp_buff[i] = tmp_buff[i] >> 14; // 32:8为有效位， 8:0为低8位， 全为0， AFE的输入为16位语音数据，拿29：13位是为了对语音信号放大。
     }
 
     return ret;
 }
 
-// 初始化音频输出芯片
-esp_codec_dev_handle_t bsp_audio_codec_speaker_microphone_init(void)
+void hal_i2s_record(char *file_path, int record_time)
 {
-    if (i2s_data_if == NULL) {
-        /* Configure I2S peripheral and Power Amplifier */
-        ESP_ERROR_CHECK(bsp_audio_init());
-    }
-    assert(i2s_data_if);
+    ESP_LOGI(TAG, "Start Record");
+    record_info.flash_wr_size = 0;
+    record_info.byte_rate = 1 * record_info.i2s_config.sample_rate * record_info.i2s_config.bits_per_sample / 8; // 声道数×采样频率×每样本的数据位数/8。播放软件利用此值可以估计缓冲区的大小。
+    record_info.bytes_all = record_info.byte_rate * record_time;                                                 // 设定时间下的所有数据大小
+    record_info.sample_size = record_info.i2s_config.bits_per_sample * 1024;                                     // 每一次采样的带下
+    const wav_header_t wav_header = WAV_HEADER_PCM_DEFAULT(record_info.bytes_all, record_info.i2s_config.bits_per_sample, record_info.i2s_config.sample_rate, 1);
 
-    const audio_codec_gpio_if_t *gpio_if = audio_codec_new_gpio();
-
-    audio_codec_i2c_cfg_t i2c_cfg = {
-        .port = BSP_I2C_NUM,
-        .addr = 0x32,
-        .bus_handle = bus_handle,
-    };
-    const audio_codec_ctrl_if_t *i2c_ctrl_if = audio_codec_new_i2c_ctrl(&i2c_cfg);
-    assert(i2c_ctrl_if);
-
-    esp_codec_dev_hw_gain_t gain = {
-        .pa_voltage = 5.0,
-        .codec_dac_voltage = 3.3,
-    };
-
-    es8311_codec_cfg_t es8311_cfg = {
-        .ctrl_if = i2c_ctrl_if,
-        .gpio_if = gpio_if,
-        .codec_mode = ESP_CODEC_DEV_WORK_MODE_DAC,
-        .pa_pin = GPIO_PWR_CTRL,
-        .pa_reverted = false,
-        .master_mode = false,
-        .use_mclk = true,
-        .digital_mic = false,
-        .invert_mclk = false,
-        .invert_sclk = false,
-        .hw_gain = gain,
-    };
-    const audio_codec_if_t *es8311_dev = es8311_codec_new(&es8311_cfg);
-    assert(es8311_dev);
-
-    esp_codec_dev_cfg_t codec_dev_cfg = {
-        .dev_type = ESP_CODEC_DEV_TYPE_OUT,
-        .codec_if = es8311_dev,
-        .data_if = i2s_data_if,
-    };
-    return esp_codec_dev_new(&codec_dev_cfg);
-}
-
-// 初始化音频输入芯片
-esp_codec_dev_handle_t bsp_audio_codec_microphone_init(void)
-{
-    if (i2s_data_if == NULL) {
-        /* Configure I2S peripheral and Power Amplifier */
-        ESP_ERROR_CHECK(bsp_audio_init());
-    }
-    assert(i2s_data_if);
-
-    audio_codec_i2c_cfg_t i2c_cfg = {
-        .port = BSP_I2C_NUM,
-        .addr = 0x82,
-        .bus_handle = bus_handle,
-    };
-    const audio_codec_ctrl_if_t *i2c_ctrl_if = audio_codec_new_i2c_ctrl(&i2c_cfg);
-    assert(i2c_ctrl_if);
-
-    es7210_codec_cfg_t es7210_cfg = {
-        .ctrl_if = i2c_ctrl_if,
-        .mic_selected = ES7120_SEL_MIC1 | ES7120_SEL_MIC2 | ES7120_SEL_MIC3 | ES7120_SEL_MIC4,
-    };
-    const audio_codec_if_t *es7210_dev = es7210_codec_new(&es7210_cfg);
-    assert(es7210_dev);
-
-    esp_codec_dev_cfg_t codec_es7210_dev_cfg = {
-        .dev_type = ESP_CODEC_DEV_TYPE_IN,
-        .codec_if = es7210_dev,
-        .data_if = i2s_data_if,
-    };
-    return esp_codec_dev_new(&codec_es7210_dev_cfg);
-}
-
-// 设置采样率
-esp_err_t bsp_codec_set_fs(uint32_t rate, uint32_t bits_cfg, i2s_slot_mode_t ch)
-{
-    esp_err_t ret = ESP_OK;
-
-    esp_codec_dev_sample_info_t fs = {
-        .sample_rate = rate,
-        .channel = ch,
-        .bits_per_sample = bits_cfg,
-    };
-    
-    if (play_dev_handle) {
-        ret = esp_codec_dev_close(play_dev_handle);
-    }
-    if (record_dev_handle) {
-        ret |= esp_codec_dev_close(record_dev_handle);
-        ret |= esp_codec_dev_set_in_gain(record_dev_handle, CODEC_DEFAULT_ADC_VOLUME);
+    // 判断文件是否存在
+    struct stat st;
+    if (stat(file_path, &st) == 0) {
+        ESP_LOGI(TAG, "%s exit", file_path);
+        unlink(file_path); // 如果存在就删除
     }
 
-    if (play_dev_handle) {
-        ret |= esp_codec_dev_open(play_dev_handle, &fs);
+    // 创建WAV文件
+    FILE *f = fopen(file_path, "a");
+    if (f == NULL) {
+        ESP_LOGI(TAG, "Failed to open file");
+        return;
     }
-    if (record_dev_handle) {
-        ret |= esp_codec_dev_open(record_dev_handle, &fs);
+    fwrite(&wav_header, sizeof(wav_header), 1, f);
+
+    while (record_info.flash_wr_size < record_info.bytes_all) {
+        char *i2s_raw_buffer = heap_caps_calloc(1, record_info.sample_size, MALLOC_CAP_SPIRAM);
+        if (i2s_raw_buffer == NULL) {
+            continue;
+        }
+
+        // Malloc success
+        if (i2s_channel_read(rx_handle, i2s_raw_buffer, record_info.sample_size, &record_info.read_size, 100) == ESP_OK) {
+            fwrite(i2s_raw_buffer, record_info.read_size, 1, f);
+            record_info.flash_wr_size += record_info.read_size;
+        } else {
+            ESP_LOGI(TAG, "Read Failed!\n");
+        }
+        free(i2s_raw_buffer);
     }
-    return ret;
-}
 
-// 音频芯片初始化
-esp_err_t bsp_codec_init(void)
-{
-    play_dev_handle = bsp_audio_codec_speaker_microphone_init();
-    assert((play_dev_handle) && "play_dev_handle not initialized");
-
-    // record_dev_handle = bsp_audio_codec_microphone_init();
-    // assert((record_dev_handle) && "record_dev_handle not initialized");
-
-    bsp_codec_set_fs(CODEC_DEFAULT_SAMPLE_RATE, CODEC_DEFAULT_BIT_WIDTH, CODEC_DEFAULT_CHANNEL);
-
-    return ESP_OK;
-}
-
-// 播放音乐
-esp_err_t bsp_i2s_write(void *audio_buffer, size_t len, size_t *bytes_written, uint32_t timeout_ms)
-{
-    esp_err_t ret = ESP_OK;
-    ret = esp_codec_dev_write(play_dev_handle, audio_buffer, len);
-    *bytes_written = len;
-    return ret;
-}
-
-// 设置静音与否
-esp_err_t bsp_codec_mute_set(bool enable)
-{
-    esp_err_t ret = ESP_OK;
-    ret = esp_codec_dev_set_out_mute(play_dev_handle, enable);
-    return ret;
-}
-
-// 设置喇叭音量
-esp_err_t bsp_codec_volume_set(int volume, int *volume_set)
-{
-    esp_err_t ret = ESP_OK;
-    float v = volume;
-    ret = esp_codec_dev_set_out_vol(play_dev_handle, (int)v);
-    return ret;
-}
-
-int bsp_get_feed_channel(void)
-{
-    return ADC_I2S_CHANNEL;
+    ESP_LOGI(TAG, "Recording done!");
+    fclose(f);
+    ESP_LOGI(TAG, "File written on SDCard");
 }

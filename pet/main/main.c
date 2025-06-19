@@ -28,100 +28,60 @@
 #include "audio.h"
 #include "app_spiffs.h"
 #include "esp_err.h"
+#include "hal_i2s.h"
+#include "app_sr.h"
 static const char *TAG = "main";
 #define PCM_FILE_PATH "/spiffs/test.pcm"
 #define BUFFER_SIZE 512
 
-#define I2C_PORT    0
-#define I2C_SDA_IO  5
-#define I2C_SCL_IO  4
-#define I2C_FREQ_HZ 100000
-
-
-// void app_main(void)
-// {
-//     // 配置 I2C 总线
-//     i2c_master_bus_config_t bus_config = {
-//         .clk_source = I2C_CLK_SRC_DEFAULT,
-//         .i2c_port = I2C_PORT,
-//         .scl_io_num = I2C_SCL_IO,
-//         .sda_io_num = I2C_SDA_IO,
-//         .glitch_ignore_cnt = 7,
-//         .flags.enable_internal_pullup = true,
-//     };
-
-//     i2c_master_bus_handle_t bus_handle;
-//     ESP_ERROR_CHECK(i2c_new_master_bus(&bus_config, &bus_handle));
-
-//     ESP_LOGI(TAG, "Scanning I2C bus...");
-
-//     for (uint8_t addr = 0x03; addr < 0x78; addr++) {
-//         esp_err_t ret = i2c_master_probe(bus_handle, addr, 50);  // ✅ 正确传入地址
-
-//         if (ret == ESP_OK) {
-//             ESP_LOGI(TAG, "Found I2C device at address 0x%02X", addr);
-//         }
-//     }
-
-//     ESP_LOGI(TAG, "Scan complete.");
-// }
+/*
+    测试语音唤醒是否正常
+*/
 void app_main(void)
 {
     nvs_flash_init();
-    bsp_i2c_init();
-
-    app_spiffs_init();
-    //initialise_weight_sensor(); //使用HX711传感器
-    motor_init();
-    motor_control(MOTOR_FORWARD);
-    esp_codec_dev_handle_t codec_dev = bsp_audio_codec_speaker_microphone_init();
-    if (codec_dev == NULL) {
-        ESP_LOGE(TAG, "Codec init failed!");
-        return;
-    }
-
-    gpio_config_t io_conf = {};
-    io_conf.intr_type = GPIO_INTR_DISABLE;
-    io_conf.mode = GPIO_MODE_OUTPUT;
-    io_conf.pin_bit_mask = (1ULL<<GPIO_NUM_9);
-    io_conf.pull_down_en = 0;
-    io_conf.pull_up_en = 0;
-    gpio_config(&io_conf);
-    gpio_set_level(GPIO_PWR_CTRL, 1);  // 你这配置是高电平使能
-    //led_strip_handle_t led_strip = configure_led();
-    ESP_LOGI(TAG, "Opening PCM file...");
-    FILE *fp = fopen(PCM_FILE_PATH, "rb");
-    if (!fp) {
-        ESP_LOGE(TAG, "Failed to open PCM file");
-        return;
-    }
-        // 打开播放参数
-    esp_codec_dev_sample_info_t fs_cfg = {
-        .sample_rate = 8000,
-        .channel = 1,    // 单声道
-        .bits_per_sample = 16 
+    i2s_speaker_init();
+        i2s_microphone_config_t mic_config = {
+        .sample_rate = I2S_MIC_SAMPLE_RATE,
+        .bits_per_sample = I2S_MIC_BITS_PER_SAMPLE,
+        .ws_pin = I2S_MIC_WS_IO,
+        .bclk_pin = I2S_MIC_BCK_IO,
+        .din_pin = I2S_MIC_DI_IO,
+        .i2s_num = I2S_MIC_NUM,
     };
-    ESP_ERROR_CHECK(esp_codec_dev_open(codec_dev, &fs_cfg));
-    uint8_t buf[512];
-    size_t bytes_read;
-    esp_codec_dev_set_out_vol(codec_dev, 80); // 设置音量，0~100
-    esp_codec_dev_write(codec_dev, NULL, 0);
-    ESP_LOGI(TAG, "Starting PCM playback");
-    while ((bytes_read = fread(buf, 1, sizeof(buf), fp)) > 0) {
-        ESP_LOGI(TAG, "Read %d bytes", bytes_read);
-        esp_err_t err =  esp_codec_dev_write(codec_dev, buf, bytes_read);
-            if (err != ESP_OK) {
-            ESP_LOGE(TAG, "Failed to write audio data: %s", esp_err_to_name(err));
-        }
-
+    esp_err_t ret = hal_i2s_microphone_init(mic_config);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize I2S microphone: %s", esp_err_to_name(ret));
+        return;
     }
-
-    ESP_LOGI(TAG, "Playback finished");
-    fclose(fp);
-    esp_codec_dev_close(codec_dev);
-    
+    ESP_LOGI(TAG, "I2S microphone initialized successfully");
+    app_sr_init();
+    app_sr_task_start();
 }
 
+
+// hal_i2s_pin_t hal_i2s_pin = {
+//     .bclk_pin = GPIO_NUM_14,
+//     .dout_pin = GPIO_NUM_11,
+//     .ws_pin = GPIO_NUM_12,
+// };
+// /*
+//     测试喇叭是否正常
+// */
+// void app_main(void)
+// {
+//     nvs_flash_init();
+//     bsp_spiffs_mount();
+//     i2s_speaker_init();
+
+//     ESP_ERROR_CHECK(audio_app_player_init(I2S_NUM_1, hal_i2s_pin, 16 * 1000));
+//     ESP_ERROR_CHECK(audio_app_player_music("/spiffs/new_epic.mp3"));
+// }
+
+
+/*
+    测试称重传感器 ws2812 电机 是否正常
+*/
 // void app_main(void)
 // {
 //     nvs_flash_init();

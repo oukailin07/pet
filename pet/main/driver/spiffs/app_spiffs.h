@@ -4,3 +4,4 @@
 
 
 esp_err_t app_spiffs_init();
+esp_err_t bsp_spiffs_mount(void);

@@ -8,8 +8,10 @@ idf_component_register(SRCS "main.c"
                             "./driver/ws2812/ws2812.c"
                             "./driver/audio/audio.c"
                             "./driver/spiffs/app_spiffs.c"
+                            "./driver/audio/hal_i2s.c"
+                            "./driver/app_sr/app_sr.c"
 
 
-INCLUDE_DIRS "." "./WIFI" "./dns_server" "./web_server"   "./driver/hx711" "./driver/motor" "./driver/key" "./driver/ws2812" "./driver/audio" "./driver/spiffs"
+INCLUDE_DIRS "." "./WIFI" "./dns_server" "./web_server"   "./driver/hx711" "./driver/motor" "./driver/key" "./driver/ws2812" "./driver/audio" "./driver/spiffs" "./driver/app_sr"
 EMBED_FILES "./web_server/index.html"
 )
