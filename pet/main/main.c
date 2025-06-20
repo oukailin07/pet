@@ -51,7 +51,6 @@ hal_i2s_pin_t hal_i2s_pin = {
 void app_main(void)
 {
     nvs_flash_init();
-    //i2s_speaker_init();
     bsp_spiffs_mount();
     ESP_ERROR_CHECK(audio_app_player_init(I2S_NUM_1, hal_i2s_pin, 16 * 1000));
         i2s_microphone_config_t mic_config = {

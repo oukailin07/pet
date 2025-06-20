@@ -2,7 +2,7 @@
 #include "esp_codec_dev_defaults.h"
 #include "audio_player.h"
 #include "esp_log.h"
-
+#include "string.h"
 static const char *TAG = "ADUIO";
 
 
@@ -166,7 +166,7 @@ esp_err_t audio_app_player_init(i2s_port_t i2s_port, hal_i2s_pin_t pin_cfg, uint
     audio_path_queue = xQueueCreate(AUDIO_QUEUE_LENGTH, AUDIO_PATH_MAX_LEN);
     if (!audio_path_queue) {
         ESP_LOGE("AUDIO", "创建路径队列失败");
-        return;
+        return ESP_OK;
     }
 
     xTaskCreatePinnedToCore(audio_play_task, "audio_play_task", 4096, NULL, 6, NULL,0);
@@ -194,7 +194,7 @@ void audio_play_task(void *arg)
         if (play_state == PLAY_STATE_PAUSED || play_state == PLAY_STATE_IDLE || play_state == PLAY_STATE_STOPPED) {
             // 获取下一个音频路径
             if (xQueueReceive(audio_path_queue, path_buf, portMAX_DELAY) == pdPASS) {
-                play_audio_file(path_buf);
+                audio_app_player_music_queue(path_buf);
             }
         } else {
             // 正在播放中，延迟一下再检查

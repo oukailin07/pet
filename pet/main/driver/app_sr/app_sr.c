@@ -17,7 +17,8 @@
 #include "string.h"
 #include "ws2812.h"
 #include "audio.h"
-
+#include "app_timer.h"
+#include "motor.h"
 static const char *TAG = "APP_SR";
 
 
@@ -223,31 +224,46 @@ void sr_handler_task(void *pvParam)
                     /* 出粮 */
                     ESP_LOGI(TAG, "command_id: %d, phrase_id: %d", result.command_id, 0);
                     ESP_ERROR_CHECK(audio_app_player_music_queue("/spiffs/out_one_food.mp3"));
+                    motor_control(MOTOR_FORWARD);
+                    create_one_shot_timer(1);
                     break;
                 case 1:
                     /* 请出粮 */
                     ESP_LOGI(TAG, "command_id: %d, phrase_id: %d", result.command_id, 0);
                     ESP_ERROR_CHECK(audio_app_player_music_queue("/spiffs/out_one_food.mp3"));
+                    motor_control(MOTOR_FORWARD);
+                    create_one_shot_timer(1);
                     break;
                 case 2:
                     ESP_LOGI(TAG, "command_id: %d, phrase_id: %d", result.command_id, 0);
-                    /* code */
+                    /* 出一份粮 */
+                    ESP_ERROR_CHECK(audio_app_player_music_queue("/spiffs/out_one_food.mp3"));
+                    motor_control(MOTOR_FORWARD);
+                    create_one_shot_timer(1);
                     break;
                 case 3:
                     ESP_LOGI(TAG, "command_id: %d, phrase_id: %d", result.command_id, 0);
-                    /* code */
+                    motor_control(MOTOR_FORWARD);
+                    create_one_shot_timer(2);
+                    /* 出两份粮 */
                     break;
                 case 4:
-                    ESP_LOGI(TAG, "command_id: %d, phrase_id: %d", result.command_id, 0);   
-                    /* code */
+                    ESP_LOGI(TAG, "command_id: %d, phrase_id: %d", result.command_id, 0);
+                    motor_control(MOTOR_FORWARD);
+                    create_one_shot_timer(3);   
+                    /* 出三分粮 */
                     break;
                 case 5:
                     ESP_LOGI(TAG, "command_id: %d, phrase_id: %d", result.command_id, 0);
-                    /* code */
+                    motor_control(MOTOR_FORWARD);
+                    create_one_shot_timer(4);
+                    /* 出四分粮 */
                     break;
                 case 6:
                     ESP_LOGI(TAG, "command_id: %d, phrase_id: %d", result.command_id, 0);
-                    /* code */
+                    motor_control(MOTOR_FORWARD);
+                    create_one_shot_timer(5);
+                    /* 出五份粮 */
                     break;
                 case 7:
                     ESP_LOGI(TAG, "command_id: %d, phrase_id: %d", result.command_id, 0);
