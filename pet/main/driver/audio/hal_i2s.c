@@ -22,7 +22,7 @@ const audio_codec_data_if_t *hal_i2s_init(i2s_port_t i2s_port, hal_i2s_pin_t pin
         .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(sample_rate),
         .slot_cfg = {
             .data_bit_width = I2S_DATA_BIT_WIDTH_16BIT, // MAX98357 支持 16/24/32bit，一般选 16bit
-            .slot_bit_width = I2S_SLOT_BIT_WIDTH_AUTO,
+            .slot_bit_width = I2S_SLOT_BIT_WIDTH_16BIT,
             .slot_mode = I2S_SLOT_MODE_STEREO,
             .slot_mask = I2S_STD_SLOT_LEFT | I2S_STD_SLOT_RIGHT,
         },
@@ -194,7 +194,7 @@ void audio_play_task(void *arg)
         if (play_state == PLAY_STATE_PAUSED || play_state == PLAY_STATE_IDLE || play_state == PLAY_STATE_STOPPED) {
             // 获取下一个音频路径
             if (xQueueReceive(audio_path_queue, path_buf, portMAX_DELAY) == pdPASS) {
-                audio_app_player_music_queue(path_buf);
+                audio_app_player_music(path_buf);
             }
         } else {
             // 正在播放中，延迟一下再检查

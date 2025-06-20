@@ -66,6 +66,7 @@ esp_err_t hal_i2s_microphone_init(i2s_microphone_config_t config)
     };
 
     std_cfg.slot_cfg.slot_mask = I2S_STD_SLOT_LEFT;
+    
     ret_val |= i2s_channel_init_std_mode(rx_handle, &std_cfg);
     ret_val |= i2s_channel_enable(rx_handle);
     record_info.i2s_config = config;

@@ -12,6 +12,6 @@
 #include "string.h"
 #include "app_url_encode.h"
 #include "esp_http_client.h"
-
+#define MP3_SAVE_PATH "/spiffs/baidu_tts.mp3"
 void http_get_ip_tts(char *ip);
 #endif // HTTP_TTS_H

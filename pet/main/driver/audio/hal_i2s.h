@@ -22,3 +22,4 @@ esp_err_t audio_app_player_music(char *file_path);
 esp_err_t audio_app_player_init(i2s_port_t i2s_port, hal_i2s_pin_t pin_cfg, uint16_t sample_rate);
 esp_err_t audio_app_player_music_queue(const char *path);
 void audio_play_task(void *arg);
+esp_err_t aduio_app_write(void *audio_buffer, size_t len, size_t *bytes_written, uint32_t timeout_ms);

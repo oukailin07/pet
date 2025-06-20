@@ -19,6 +19,7 @@
 #include "audio.h"
 #include "app_timer.h"
 #include "motor.h"
+#include "http_tts.h"
 static const char *TAG = "APP_SR";
 
 
@@ -35,7 +36,7 @@ static esp_afe_sr_iface_t *afe_handle = NULL;
 static volatile int task_flag = 0;
 static model_iface_data_t       *model_data     = NULL;
 static const esp_mn_iface_t     *multinet       = NULL;
-const char *cmd_phoneme[7] = {
+const char *cmd_phoneme[8] = {
     "chu liang",
     "qing chu liang",
     "chu yi fen liang",
@@ -43,6 +44,7 @@ const char *cmd_phoneme[7] = {
     "chu san fen liang",
     "chu si fen liang",
     "chu wu fen liang",
+    "she bei di zhi"
 };
 
 esp_err_t app_sr_init(void)
@@ -85,31 +87,40 @@ void app_sr_feed_task(void *arg)
 
     int feed_chunksize = afe_handle->get_feed_chunksize(afe_data);
     int feed_nch = afe_handle->get_feed_channel_num(afe_data);
-    // assert(feed_nch<feed_channel);
     int16_t *feed_buff = (int16_t *) malloc(feed_chunksize * feed_nch * sizeof(int16_t));
-            
 
     assert(feed_buff);
+
     while (task_flag) {
         size_t bytesIn = 0;
-        // esp_err_t result = i2s_read(I2S_NUM_0, &sBuffer, bufferLen * sizeof(int16_t), &bytesIn, portMAX_DELAY);
-        
         esp_err_t result = i2s_channel_read(rx_handle, feed_buff, feed_chunksize * feed_nch * sizeof(int16_t), &bytesIn, portMAX_DELAY);
+
         if (result != ESP_OK || bytesIn <= 0) {
             ESP_LOGE(TAG, "I2S read error: %s", esp_err_to_name(result));
             continue;
         }
+
         if (bytesIn < feed_chunksize * feed_nch * sizeof(int16_t)) {
             ESP_LOGW(TAG, "I2S read less data than expected: %d bytes", bytesIn);
             memset(feed_buff + bytesIn / sizeof(int16_t), 0, (feed_chunksize * feed_nch - bytesIn / sizeof(int16_t)) * sizeof(int16_t));
         }
 
+        // ====== 自动增益处理 & 打印最大幅度 ======
+        int16_t max_val = 0;
+        for (int i = 0; i < feed_chunksize * feed_nch; i++) {
+            int32_t amplified = feed_buff[i] * 8; // 8倍放大
+            if (amplified > 32767) amplified = 32767;
+            if (amplified < -32768) amplified = -32768;
+            feed_buff[i] = (int16_t)amplified;
+            if (abs(feed_buff[i]) > max_val) max_val = abs(feed_buff[i]);
+        }
+        ESP_LOGI(TAG, "Max amplitude: %d", max_val);
+
+        // ====== feed 到 AFE 模块 ======
         afe_handle->feed(afe_data, feed_buff);
     }
-    if (feed_buff) {
-        free(feed_buff);
-        feed_buff = NULL;
-    }
+
+    free(feed_buff);
     vTaskDelete(NULL);
 }
 
@@ -268,6 +279,7 @@ void sr_handler_task(void *pvParam)
                 case 7:
                     ESP_LOGI(TAG, "command_id: %d, phrase_id: %d", result.command_id, 0);
                     /* code */
+                    ESP_ERROR_CHECK(audio_app_player_music_queue(MP3_SAVE_PATH));
                     break;
                 case 8:
                     ESP_LOGI(TAG, "command_id: %d, phrase_id: %d", result.command_id, 0);
