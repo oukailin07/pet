@@ -30,52 +30,65 @@
 #include "esp_err.h"
 #include "hal_i2s.h"
 #include "app_sr.h"
+#include "ConnectWIFI.h"
+#include "http_tts.h"
 static const char *TAG = "main";
 #define PCM_FILE_PATH "/spiffs/test.pcm"
 #define BUFFER_SIZE 512
 
-/*
-    测试语音唤醒是否正常
-*/
-// void app_main(void)
-// {
-//     nvs_flash_init();
-//     i2s_speaker_init();
-//         i2s_microphone_config_t mic_config = {
-//         .sample_rate = I2S_MIC_SAMPLE_RATE,
-//         .bits_per_sample = I2S_MIC_BITS_PER_SAMPLE,
-//         .ws_pin = I2S_MIC_WS_IO,
-//         .bclk_pin = I2S_MIC_BCK_IO,
-//         .din_pin = I2S_MIC_DI_IO,
-//         .i2s_num = I2S_MIC_NUM,
-//     };
-//     esp_err_t ret = hal_i2s_microphone_init(mic_config);
-//     if (ret != ESP_OK) {
-//         ESP_LOGE(TAG, "Failed to initialize I2S microphone: %s", esp_err_to_name(ret));
-//         return;
-//     }
-//     ESP_LOGI(TAG, "I2S microphone initialized successfully");
-//     app_sr_init();
-//     app_sr_task_start();
-// }
-
-
+char ip_address[16] = {0}; // 用于存储IP地址
 hal_i2s_pin_t hal_i2s_pin = {
     .bclk_pin = GPIO_NUM_14,
     .dout_pin = GPIO_NUM_11,
     .ws_pin = GPIO_NUM_12,
 };
+
 /*
-    测试喇叭是否正常
+    测试语音唤醒是否正常
 */
 void app_main(void)
 {
     nvs_flash_init();
+    //i2s_speaker_init();
     bsp_spiffs_mount();
-
     ESP_ERROR_CHECK(audio_app_player_init(I2S_NUM_1, hal_i2s_pin, 16 * 1000));
-    ESP_ERROR_CHECK(audio_app_player_music("/spiffs/new_epic.mp3"));
+        i2s_microphone_config_t mic_config = {
+        .sample_rate = I2S_MIC_SAMPLE_RATE,
+        .bits_per_sample = I2S_MIC_BITS_PER_SAMPLE,
+        .ws_pin = I2S_MIC_WS_IO,
+        .bclk_pin = I2S_MIC_BCK_IO,
+        .din_pin = I2S_MIC_DI_IO,
+        .i2s_num = I2S_MIC_NUM,
+    };
+    esp_err_t ret = hal_i2s_microphone_init(mic_config);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize I2S microphone: %s", esp_err_to_name(ret));
+        return;
+    }
+    ESP_LOGI(TAG, "I2S microphone initialized successfully");
+    app_sr_init();
+    app_sr_task_start();
+    wifi_init_sta("adol-3466","12345678");
+    http_get_ip_tts(ip_address);
 }
+
+
+// hal_i2s_pin_t hal_i2s_pin = {
+//     .bclk_pin = GPIO_NUM_14,
+//     .dout_pin = GPIO_NUM_11,
+//     .ws_pin = GPIO_NUM_12,
+// };
+// /*
+//     测试喇叭是否正常
+// */
+// void app_main(void)
+// {
+//     nvs_flash_init();
+//     bsp_spiffs_mount();
+
+//     ESP_ERROR_CHECK(audio_app_player_init(I2S_NUM_1, hal_i2s_pin, 16 * 1000));
+//     ESP_ERROR_CHECK(audio_app_player_music("/spiffs/new_epic.mp3"));
+// }
 
 
 /*

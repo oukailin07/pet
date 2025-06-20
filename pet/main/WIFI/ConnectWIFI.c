@@ -33,7 +33,9 @@
 #elif CONFIG_ESP_WIFI_AUTH_WAPI_PSK
 #define ESP_WIFI_SCAN_AUTH_MODE_THRESHOLD WIFI_AUTH_WAPI_PSK
 #endif
- 
+
+extern char ip_address[16];
+
 static void wifi_event_handler(void* arg, esp_event_base_t event_base,
                                     int32_t event_id, void* event_data)
 {
@@ -123,6 +125,12 @@ static void event_handler(void* arg, esp_event_base_t event_base,
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t* event = (ip_event_got_ip_t*) event_data;
         ESP_LOGI(TAG, "got ip:" IPSTR, IP2STR(&event->ip_info.ip));
+        // 将 IP 转成字符串
+        esp_ip4addr_ntoa(&event->ip_info.ip, ip_address, sizeof(ip_address));
+
+        // 现在 ip_address 就是 IP 地址的字符串形式，比如 "192.168.1.100"
+        // 你可以保存到变量、Flash、写入文件等
+        ESP_LOGI(TAG, "IP as string: %s", ip_address);
         s_retry_num = 0;
         xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
     }

@@ -34,19 +34,14 @@ static esp_afe_sr_iface_t *afe_handle = NULL;
 static volatile int task_flag = 0;
 static model_iface_data_t       *model_data     = NULL;
 static const esp_mn_iface_t     *multinet       = NULL;
-const char *cmd_phoneme[12] = {
-    "da kai kong qi jing hua qi",
-    "guan bi kong qi jing hua qi",
-    "da kai tai deng",
-    "guan bi tai deng",
-    "tai deng tiao liang",
-    "tai deng tiao an",
-    "da kai deng dai",
-    "guan bi deng dai",
-    "bo fang yin yue",
-    "ting zhi bo fang",
-    "da kai shi jian",
-    "da kai ri li"
+const char *cmd_phoneme[7] = {
+    "chu liang",
+    "qing chu liang",
+    "chu yi fen liang",
+    "chu liang fen liang",
+    "chu san fen liang",
+    "chu si fen liang",
+    "chu wu fen liang",
 };
 
 esp_err_t app_sr_init(void)
@@ -136,6 +131,7 @@ void app_sr_detect_task(void *arg)
         if (res->wakeup_state == WAKENET_DETECTED) {//得到唤醒词
 	        printf("model index:%d, word index:%d\n", res->wakenet_model_index, res->wake_word_index);
             printf("-----------LISTENING-----------\n");
+
             sr_result_t result = {
                 .wakenet_mode = WAKENET_DETECTED,
                 .state = ESP_MN_STATE_DETECTING,
@@ -209,16 +205,63 @@ void sr_handler_task(void *pvParam)
 
         if (ESP_MN_STATE_TIMEOUT == result.state) {
             ESP_LOGI(TAG, "timeout");
-
+            ESP_ERROR_CHECK(audio_app_player_music("/spiffs/goodbye.mp3"));
             continue;
         }
 
         if (WAKENET_DETECTED == result.wakenet_mode) {
             ESP_LOGI(TAG, "wakenet detected");
-            
+            ESP_ERROR_CHECK(audio_app_player_music("/spiffs/master_user.mp3"));
             printf("%d",result.command_id);
             continue;
         }
+        if(ESP_MN_STATE_DETECTED == result.state)
+        {
+            switch (result.command_id)
+            {
+                case 0:
+                    /* 出粮 */
+                    ESP_LOGI(TAG, "command_id: %d, phrase_id: %d", result.command_id, 0);
+                    ESP_ERROR_CHECK(audio_app_player_music("/spiffs/out_one_food.mp3"));
+                    break;
+                case 1:
+                    /* 请出粮 */
+                    ESP_LOGI(TAG, "command_id: %d, phrase_id: %d", result.command_id, 0);
+                    ESP_ERROR_CHECK(audio_app_player_music("/spiffs/out_one_food.mp3"));    
+                    break;
+                case 2:
+                    ESP_LOGI(TAG, "command_id: %d, phrase_id: %d", result.command_id, 0);
+                    /* code */
+                    break;
+                case 3:
+                    ESP_LOGI(TAG, "command_id: %d, phrase_id: %d", result.command_id, 0);
+                    /* code */
+                    break;
+                case 4:
+                    ESP_LOGI(TAG, "command_id: %d, phrase_id: %d", result.command_id, 0);   
+                    /* code */
+                    break;
+                case 5:
+                    ESP_LOGI(TAG, "command_id: %d, phrase_id: %d", result.command_id, 0);
+                    /* code */
+                    break;
+                case 6:
+                    ESP_LOGI(TAG, "command_id: %d, phrase_id: %d", result.command_id, 0);
+                    /* code */
+                    break;
+                case 7:
+                    ESP_LOGI(TAG, "command_id: %d, phrase_id: %d", result.command_id, 0);
+                    /* code */
+                    break;
+                case 8:
+                    ESP_LOGI(TAG, "command_id: %d, phrase_id: %d", result.command_id, 0);
+                    /* code */
+                    break;
+                default:
+                    break;
+            }
+        }
+        
     }
 }
 
