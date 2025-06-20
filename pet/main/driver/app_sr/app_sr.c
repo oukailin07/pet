@@ -205,13 +205,13 @@ void sr_handler_task(void *pvParam)
 
         if (ESP_MN_STATE_TIMEOUT == result.state) {
             ESP_LOGI(TAG, "timeout");
-            ESP_ERROR_CHECK(audio_app_player_music("/spiffs/goodbye.mp3"));
+            ESP_ERROR_CHECK(audio_app_player_music_queue("/spiffs/goodbye.mp3"));
             continue;
         }
 
         if (WAKENET_DETECTED == result.wakenet_mode) {
             ESP_LOGI(TAG, "wakenet detected");
-            ESP_ERROR_CHECK(audio_app_player_music("/spiffs/master_user.mp3"));
+            ESP_ERROR_CHECK(audio_app_player_music_queue("/spiffs/master_user.mp3"));
             printf("%d",result.command_id);
             continue;
         }
@@ -222,12 +222,12 @@ void sr_handler_task(void *pvParam)
                 case 0:
                     /* 出粮 */
                     ESP_LOGI(TAG, "command_id: %d, phrase_id: %d", result.command_id, 0);
-                    ESP_ERROR_CHECK(audio_app_player_music("/spiffs/out_one_food.mp3"));
+                    ESP_ERROR_CHECK(audio_app_player_music_queue("/spiffs/out_one_food.mp3"));
                     break;
                 case 1:
                     /* 请出粮 */
                     ESP_LOGI(TAG, "command_id: %d, phrase_id: %d", result.command_id, 0);
-                    ESP_ERROR_CHECK(audio_app_player_music("/spiffs/out_one_food.mp3"));    
+                    ESP_ERROR_CHECK(audio_app_player_music_queue("/spiffs/out_one_food.mp3"));
                     break;
                 case 2:
                     ESP_LOGI(TAG, "command_id: %d, phrase_id: %d", result.command_id, 0);

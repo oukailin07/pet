@@ -36,6 +36,8 @@ static const char *TAG = "main";
 #define PCM_FILE_PATH "/spiffs/test.pcm"
 #define BUFFER_SIZE 512
 
+play_state_t play_state = PLAY_STATE_PAUSED; // 播放状态
+
 char ip_address[16] = {0}; // 用于存储IP地址
 hal_i2s_pin_t hal_i2s_pin = {
     .bclk_pin = GPIO_NUM_14,

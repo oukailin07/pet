@@ -5,10 +5,12 @@
 
 static const char *TAG = "ADUIO";
 
+
+static QueueHandle_t audio_path_queue;
 const audio_codec_data_if_t *i2s_data_if;
 i2s_chan_handle_t i2s_tx_chan;
 esp_codec_dev_handle_t play_dev_handle;
-
+extern play_state_t play_state;
 const audio_codec_data_if_t *hal_i2s_init(i2s_port_t i2s_port, hal_i2s_pin_t pin_config, i2s_chan_handle_t *tx_channel, uint16_t sample_rate)
 {
     esp_err_t ret;
@@ -112,15 +114,18 @@ static void audio_app_callback(audio_player_cb_ctx_t *ctx)
     switch (ctx->audio_event) {
     case 0: /**< Player is idle, not playing audio */
         ESP_LOGI(TAG, "IDLE");
+        play_state = PLAY_STATE_PAUSED;
         break;
     case 1:
         ESP_LOGI(TAG, "NEXT");
         break;
     case 2:
         ESP_LOGI(TAG, "PLAYING");
+        play_state = PLAY_STATE_PLAYING;
         break;
     case 3:
         ESP_LOGI(TAG, "PAUSE");
+        play_state = PLAY_STATE_PAUSED;
         break;
     case 4:
         ESP_LOGI(TAG, "SHUTDOWN");
@@ -156,5 +161,44 @@ esp_err_t audio_app_player_init(i2s_port_t i2s_port, hal_i2s_pin_t pin_cfg, uint
     };
     ESP_ERROR_CHECK(audio_player_new(config));
     audio_player_callback_register(audio_app_callback, NULL);
+
+
+    audio_path_queue = xQueueCreate(AUDIO_QUEUE_LENGTH, AUDIO_PATH_MAX_LEN);
+    if (!audio_path_queue) {
+        ESP_LOGE("AUDIO", "创建路径队列失败");
+        return;
+    }
+
+    xTaskCreatePinnedToCore(audio_play_task, "audio_play_task", 4096, NULL, 6, NULL,0);
     return ESP_OK;
+}
+
+
+esp_err_t audio_app_player_music_queue(const char *path)
+{
+    if (!path || strlen(path) >= AUDIO_PATH_MAX_LEN) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (xQueueSend(audio_path_queue, path, portMAX_DELAY) != pdPASS) {
+        return ESP_FAIL;
+    }
+    return ESP_OK;
+}
+
+void audio_play_task(void *arg)
+{
+    char path_buf[AUDIO_PATH_MAX_LEN];
+
+    while (1) {
+        if (play_state == PLAY_STATE_PAUSED || play_state == PLAY_STATE_IDLE || play_state == PLAY_STATE_STOPPED) {
+            // 获取下一个音频路径
+            if (xQueueReceive(audio_path_queue, path_buf, portMAX_DELAY) == pdPASS) {
+                play_audio_file(path_buf);
+            }
+        } else {
+            // 正在播放中，延迟一下再检查
+            vTaskDelay(pdMS_TO_TICKS(500));
+        }
+    }
 }
