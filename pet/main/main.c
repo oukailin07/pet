@@ -32,19 +32,28 @@
 #include "app_sr.h"
 #include "ConnectWIFI.h"
 #include "http_tts.h"
+#include "key.h"
 static const char *TAG = "main";
 #define PCM_FILE_PATH "/spiffs/test.pcm"
 #define BUFFER_SIZE 512
 
 play_state_t play_state = PLAY_STATE_PAUSED; // 播放状态
-
 char ip_address[16] = {0}; // 用于存储IP地址
-hal_i2s_pin_t hal_i2s_pin = {
-    .bclk_pin = GPIO_NUM_14,
-    .dout_pin = GPIO_NUM_11,
-    .ws_pin = GPIO_NUM_12,
-};
 
+
+
+// hal_i2s_pin_t hal_i2s_pin = {
+//     .bclk_pin = GPIO_NUM_14,
+//     .dout_pin = GPIO_NUM_11,
+//     .ws_pin = GPIO_NUM_12,
+// };
+
+
+hal_i2s_pin_t hal_i2s_pin = {
+    .bclk_pin = GPIO_NUM_2,
+    .dout_pin = GPIO_NUM_1,
+    .ws_pin = GPIO_NUM_38,
+};
 /*
     测试语音唤醒是否正常
 */
@@ -52,6 +61,19 @@ void app_main(void)
 {
     nvs_flash_init();
     bsp_spiffs_mount();
+    //create a queue to handle gpio event from isr
+    
+    /* 初始化GPIO */
+    key_init();
+
+    //start led task
+    
+    motor_init();
+    // motor_control(MOTOR_FORWARD);
+    initialise_weight_sensor();
+    led_strip_handle_t led_strip = configure_led();
+    // led_strip_set_pixel(led_strip, 0, 0, 255, 0);
+    // led_strip_refresh(led_strip);
     ESP_ERROR_CHECK(audio_app_player_init(I2S_NUM_1, hal_i2s_pin, 16 * 1000));
         i2s_microphone_config_t mic_config = {
         .sample_rate = I2S_MIC_SAMPLE_RATE,

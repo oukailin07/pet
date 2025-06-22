@@ -114,7 +114,7 @@ void app_sr_feed_task(void *arg)
             feed_buff[i] = (int16_t)amplified;
             if (abs(feed_buff[i]) > max_val) max_val = abs(feed_buff[i]);
         }
-        ESP_LOGI(TAG, "Max amplitude: %d", max_val);
+        //ESP_LOGI(TAG, "Max amplitude: %d", max_val);
 
         // ====== feed 到 AFE 模块 ======
         afe_handle->feed(afe_data, feed_buff);

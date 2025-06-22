@@ -41,7 +41,7 @@ esp_err_t app_http_baidu_tts_event_handler(esp_http_client_event_t *evt)
                 fclose(mp3_file);
                 mp3_file = NULL;
                 ESP_LOGI(TAG, "MP3 saved to: %s", MP3_SAVE_PATH);
-                ESP_ERROR_CHECK(audio_app_player_music_queue(MP3_SAVE_PATH));
+                //ESP_ERROR_CHECK(audio_app_player_music_queue(MP3_SAVE_PATH));
             }
             break;
 
