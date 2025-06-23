@@ -110,13 +110,13 @@ unsigned long HX711_read()
 
 unsigned long  HX711_read_average(char times) 
 {
-	ESP_LOGI(DEBUGTAG, "===================== READ AVERAGE START ====================");
+	//ESP_LOGI(DEBUGTAG, "===================== READ AVERAGE START ====================");
 	unsigned long sum = 0;
 	for (char i = 0; i < times; i++) 
 	{
 		sum += HX711_read();
 	}
-	ESP_LOGI(DEBUGTAG, "===================== READ AVERAGE END : %ld ====================",(sum / times));
+	//ESP_LOGI(DEBUGTAG, "===================== READ AVERAGE END : %ld ====================",(sum / times));
 	return sum / times;
 }
 
@@ -136,11 +136,11 @@ float HX711_get_units(char times)
 
 void HX711_tare( ) 
 {
-	ESP_LOGI(DEBUGTAG, "===================== START TARE ====================");
+	//ESP_LOGI(DEBUGTAG, "===================== START TARE ====================");
 	unsigned long sum = 0; 
 	sum = HX711_read_average(20);
 	HX711_set_offset(sum);
-	ESP_LOGI(DEBUGTAG, "===================== END TARE: %ld ====================",sum);
+	//ESP_LOGI(DEBUGTAG, "===================== END TARE: %ld ====================",sum);
 }
 
 void HX711_set_scale(float scale ) 
@@ -187,12 +187,12 @@ void weight_reading_task(void* arg)
 
     // 第一步：清零（无物体）
     HX711_tare();
-    ESP_LOGI(TAG, "完成去皮，请放上一个已知重量的物体（如500g水）...");
+    ESP_LOGI(TAG, "完成去皮,请放上一个已知重量的物体(如500g水)...");
     vTaskDelay(pdMS_TO_TICKS(5000));  // 等你手动放上去
 
     // 第二步：读数并设置校准比例
     unsigned long raw = HX711_get_value(10);  // 获取校准时的读数
-    float known_weight_g = 180.0f; // 例如你放的是一瓶500g矿泉水
+    float known_weight_g = 1.0f;
     float scale = raw / known_weight_g;
     HX711_set_scale(scale);
     ESP_LOGI(TAG, "设置scale = %.2f", scale);
@@ -205,6 +205,7 @@ void weight_reading_task(void* arg)
         ESP_LOGI(TAG, "******* weight = %.2fg *********", weight);
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
+	vTaskDelete(NULL);
 }
 
 void initialise_weight_sensor(void)

@@ -163,6 +163,15 @@ esp_err_t audio_app_player_init(i2s_port_t i2s_port, hal_i2s_pin_t pin_cfg, uint
     audio_player_callback_register(audio_app_callback, NULL);
 
 
+    gpio_config_t io_conf = {};
+    io_conf.intr_type = GPIO_INTR_DISABLE;
+    io_conf.mode = GPIO_MODE_OUTPUT;
+    io_conf.pin_bit_mask = (1ULL<<GPIO_NUM_10);
+    io_conf.pull_down_en = 0;
+    io_conf.pull_up_en = 0;
+    gpio_config(&io_conf);
+    gpio_set_level(GPIO_NUM_10, 1); //打开喇叭
+
     audio_path_queue = xQueueCreate(AUDIO_QUEUE_LENGTH, AUDIO_PATH_MAX_LEN);
     if (!audio_path_queue) {
         ESP_LOGE("AUDIO", "创建路径队列失败");

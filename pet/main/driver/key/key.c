@@ -6,7 +6,7 @@
 #include "driver/gpio.h"
 #include "esp_timer.h"
 #include "key.h"
-
+#include "hal_i2s.h"
 #define KEY_GPIO                    0
 #define DEBOUNCE_TIME_MS           30
 #define DOUBLE_CLICK_INTERVAL_MS   300
@@ -54,6 +54,7 @@ void button_event_callback(button_event_t event)
     switch (event) {
         case BUTTON_EVENT_SINGLE_CLICK:
             printf("==> 单击切换模式\n");
+            ESP_ERROR_CHECK(audio_app_player_music_queue("/spiffs/out_one_food.mp3"));
             break;
         case BUTTON_EVENT_DOUBLE_CLICK:
             printf("==> 双击进入配网模式或显示IP\n");

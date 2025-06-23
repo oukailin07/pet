@@ -13,6 +13,7 @@ idf_component_register(SRCS "main.c"
                             "./driver/app_url_encode/app_url_encode.c"
                             "./driver/http/http_tts.c"
                             "./driver/timer/app_timer.c"
+                            "./driver/mqtt_client/my_mqtt_client.c"
 
 
 INCLUDE_DIRS "." "./WIFI" 
@@ -28,5 +29,9 @@ INCLUDE_DIRS "." "./WIFI"
             "./driver/app_url_encode" 
             "./driver/http"
             "./driver/timer"
+            "./driver/mqtt_client"
 EMBED_FILES "./web_server/index.html"
+EMBED_TXTFILES
+        "tuya_root_cert.pem"
+
 )
