@@ -12,6 +12,7 @@ idf_component_register(SRCS "main.c"
                             "./driver/app_sr/app_sr.c"
                             "./driver/app_url_encode/app_url_encode.c"
                             "./driver/http/http_tts.c"
+                            "./driver/http/http_client.c"
                             "./driver/timer/app_timer.c"
                             "./driver/mqtt_client/my_mqtt_client.c"
 
