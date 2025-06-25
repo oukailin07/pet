@@ -1,6 +1,12 @@
 #include "esp_timer.h"
 #include "app_timer.h"
 #include "motor.h"
+#include "esp_sntp.h"
+#define TAG "APP_TIMER"
+#include "esp_log.h"
+#include <time.h>
+#include <sys/time.h>
+#include <sys/time.h>
 // 回调函数定义
 static void my_timer_callback(void* arg)
 {

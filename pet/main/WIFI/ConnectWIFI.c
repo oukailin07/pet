@@ -62,11 +62,12 @@ void WIFI_AP_Init(void)
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));               /*初始化WiFi为WiFi驱动程序分配资源，如WiFi控制结构、RX/TX缓冲区、WiFi NVS结构等。此WiFi还启动WiFi任务。*/
  
-    ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT,
-                                                            ESP_EVENT_ANY_ID,
-                                                            &wifi_event_handler,
-                                                            NULL,
-                                                            NULL));
+    // 以下事件注册已由 wifi_status_manager 统一管理，避免重复注册导致 ESP_ERR_INVALID_STATE
+    // ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT,
+    //                                                        ESP_EVENT_ANY_ID,
+    //                                                        &wifi_event_handler,
+    //                                                        NULL,
+    //                                                        NULL));
  
         wifi_config_t wifi_config = {
             .ap = {
@@ -153,16 +154,17 @@ void wifi_init_sta(char *WIFI_Name, char *WIFI_PassWord)
  
     esp_event_handler_instance_t instance_any_id;
     esp_event_handler_instance_t instance_got_ip;
-    ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT,
-                                                        ESP_EVENT_ANY_ID,
-                                                        &event_handler,
-                                                        NULL,
-                                                        NULL));
-    ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT,
-                                                        IP_EVENT_STA_GOT_IP,
-                                                        &event_handler,
-                                                        NULL,
-                                                        NULL));
+    // 以下事件注册已由 wifi_status_manager 统一管理，避免重复注册导致 ESP_ERR_INVALID_STATE
+    // ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT,
+    //                                                     ESP_EVENT_ANY_ID,
+    //                                                     &event_handler,
+    //                                                     NULL,
+    //                                                     NULL));
+    // ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT,
+    //                                                     IP_EVENT_STA_GOT_IP,
+    //                                                     &event_handler,
+    //                                                     NULL,
+    //                                                     NULL));
  
     wifi_config_t wifi_config = {
         .sta = {
@@ -282,16 +284,17 @@ void wifi_init_softap_sta()
     // s_wifi_event_group = xEventGroupCreate();
 
     /* Register Event handler */
-    ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT,
-                    ESP_EVENT_ANY_ID,
-                    &wifi_event_handler,
-                    NULL,
-                    NULL));
-    ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT,
-                    IP_EVENT_STA_GOT_IP,
-                    &wifi_event_handler,
-                    NULL,
-                    NULL));
+    // 以下事件注册已由 wifi_status_manager 统一管理，避免重复注册导致 ESP_ERR_INVALID_STATE
+    // ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT,
+    //                 ESP_EVENT_ANY_ID,
+    //                 &wifi_event_handler,
+    //                 NULL,
+    //                 NULL));
+    // ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT,
+    //                 IP_EVENT_STA_GOT_IP,
+    //                 &wifi_event_handler,
+    //                 NULL,
+    //                 NULL));
 
     /*Initialize WiFi */
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();

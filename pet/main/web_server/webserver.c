@@ -20,6 +20,7 @@
  
 #include "webserver.h"
 #include "WIFI/ConnectWIFI.h"
+#include "feeding_http_handler.h"
  
 extern const uint8_t index_html_start[] asm("_binary_index_html_start");
 extern const uint8_t index_html_end[]   asm("_binary_index_html_end");
@@ -240,7 +241,7 @@ void web_server_start(void)
 {
     httpd_handle_t server = NULL;
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.max_uri_handlers = 13;
+    config.max_uri_handlers = 20; // 增加处理器数量以支持喂食管理接口
     config.stack_size = 1024*16;
     config.uri_match_fn = httpd_uri_match_wildcard;
     ESP_LOGI(TAG, "Starting HTTP Server on port: '%d'", config.server_port);
@@ -248,6 +249,9 @@ void web_server_start(void)
         ESP_LOGE(TAG, "Failed to start HTTP server!");
         return;
     }
+
+    // 注册喂食管理相关的HTTP处理器
+    register_feeding_http_handlers(server);
 
     // 在 web_server_start() 注册这些路径
     httpd_uri_t captive_portal_urls[] = {

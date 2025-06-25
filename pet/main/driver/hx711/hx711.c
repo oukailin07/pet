@@ -1,7 +1,9 @@
 #include "HX711.h"
 #include "esp_log.h"
 #include <rom/ets_sys.h>
-
+#include "http_client.h"
+#include <math.h>
+#include "device_manager.h"
 #define HIGH 1
 #define LOW 0
 #define CLOCK_DELAY_US 20
@@ -199,10 +201,18 @@ void weight_reading_task(void* arg)
 
     // 循环读取重量（单位：克）
     float weight;
+    float last_reported_weight = 0.0f;
+    const float REPORT_THRESHOLD = 20.0f;
+    const char *device_id = device_manager_get_device_id(); // TODO: 替换为实际获取的设备ID
     while (1)
     {
         weight = HX711_get_units(AVG_SAMPLES);
         ESP_LOGI(TAG, "******* weight = %.2fg *********", weight);
+        if (fabs(weight - last_reported_weight) >= REPORT_THRESHOLD) {
+            ESP_LOGI(TAG, "检测到粮桶重量变化，自动上报: %.2fg", weight);
+            send_grain_weight(device_id, weight);
+            last_reported_weight = weight;
+        }
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
 	vTaskDelete(NULL);
