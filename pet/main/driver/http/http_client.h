@@ -10,13 +10,14 @@ extern "C" {
 
 // 心跳包响应回调函数类型定义
 typedef void (*heartbeat_response_callback_t)(bool need_device_id, const char *device_id, const char *password);
+typedef void (*grain_weight_response_callback_t)(esp_err_t result, const char *msg);
 
 /**
  * @brief 发送心跳包
  * @param device_id 设备ID，可以为NULL
  * @return esp_err_t ESP_OK成功，ESP_FAIL失败
  */
-esp_err_t send_heartbeat(const char *device_id);
+esp_err_t send_heartbeat(const char *device_id, heartbeat_response_callback_t callback);
 
 /**
  * @brief 设置心跳包响应回调函数
@@ -47,7 +48,7 @@ esp_err_t http_add_feeding_plan(const char *device_id, int day_of_week, int hour
  * @param grain_weight 粮桶重量
  * @return esp_err_t ESP_OK成功，ESP_FAIL失败
  */
-esp_err_t send_grain_weight(const char *device_id, float grain_weight);
+esp_err_t send_grain_weight(const char *device_id, float grain_weight, grain_weight_response_callback_t callback);
 
 /**
  * @brief 发送手动喂食记录

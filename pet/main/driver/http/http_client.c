@@ -14,10 +14,28 @@
 #include "cJSON.h"
 // HTTP 客户端配置
 esp_http_client_handle_t client;
-#define SERVER_URL "http://192.168.0.101:80"  // Flask server URL
+#define SERVER_URL "http://192.168.10.101:80"  // Flask server URL
+// 定义请求类型
+typedef enum {
+    HTTP_REQ_NONE = 0,
+    HTTP_REQ_HEARTBEAT,
+    HTTP_REQ_GRAIN_WEIGHT,
+    // 其他请求类型可继续添加
+} http_request_type_t;
 
-// 心跳包响应回调函数指针
+// 全局状态结构体
+static struct {
+    http_request_type_t current_type;
+    char response_buf[1024];
+    int response_len;
+} http_req_ctx = {0};
+
+// 独立回调类型和回调函数指针
+typedef void (*heartbeat_response_callback_t)(bool need_device_id, const char *device_id, const char *password);
 static heartbeat_response_callback_t heartbeat_response_callback = NULL;
+
+typedef void (*grain_weight_response_callback_t)(esp_err_t result, const char *msg);
+static grain_weight_response_callback_t grain_weight_response_callback = NULL;
 
 /**
  * @brief 设置心跳包响应回调函数
@@ -25,6 +43,10 @@ static heartbeat_response_callback_t heartbeat_response_callback = NULL;
 void http_client_set_heartbeat_callback(heartbeat_response_callback_t callback)
 {
     heartbeat_response_callback = callback;
+}
+
+void http_client_set_grain_weight_callback(grain_weight_response_callback_t callback) {
+    grain_weight_response_callback = callback;
 }
 
 /**
@@ -80,55 +102,97 @@ static esp_err_t parse_heartbeat_response(const char *response_data, size_t resp
     return ESP_OK;
 }
 
-esp_err_t send_heartbeat(const char *device_id) {
-    ESP_LOGI("HTTP_CLIENT", "send_heartbeat called with device_id: %s", device_id ? device_id : "NULL");
+// 解析上传粮食重量响应
+static esp_err_t parse_grain_weight_response(const char *response_data, size_t response_len)
+{
+    if (response_data == NULL || response_len == 0) {
+        ESP_LOGE("Grain Weight", "Invalid response data");
+        return ESP_FAIL;
+    }
+    cJSON *root = cJSON_Parse(response_data);
+    if (root == NULL) {
+        ESP_LOGE("Grain Weight", "Failed to parse JSON response");
+        return ESP_FAIL;
+    }
+    cJSON *status = cJSON_GetObjectItem(root, "status");
+    if (status && cJSON_IsString(status)) {
+        if (strcmp(status->valuestring, "success") == 0) {
+            if (grain_weight_response_callback) {
+                grain_weight_response_callback(ESP_OK, "上传粮食重量成功");
+            }
+        } else {
+            if (grain_weight_response_callback) {
+                grain_weight_response_callback(ESP_FAIL, status->valuestring);
+            }
+        }
+    } else {
+        if (grain_weight_response_callback) {
+            grain_weight_response_callback(ESP_FAIL, "无status字段");
+        }
+    }
+    cJSON_Delete(root);
+    return ESP_OK;
+}
+
+// 事件回调
+static esp_err_t _http_event_handler(esp_http_client_event_t *evt)
+{
+    switch(evt->event_id) {
+        case HTTP_EVENT_ON_DATA:
+            if (!esp_http_client_is_chunked_response(evt->client)) {
+                // 累积数据
+                int copy_len = evt->data_len;
+                if (http_req_ctx.response_len + copy_len >= sizeof(http_req_ctx.response_buf)) {
+                    copy_len = sizeof(http_req_ctx.response_buf) - http_req_ctx.response_len - 1;
+                }
+                if (copy_len > 0) {
+                    memcpy(http_req_ctx.response_buf + http_req_ctx.response_len, evt->data, copy_len);
+                    http_req_ctx.response_len += copy_len;
+                    http_req_ctx.response_buf[http_req_ctx.response_len] = '\0';
+                }
+            }
+            break;
+        case HTTP_EVENT_ON_FINISH:
+            // 数据接收完毕，解析
+            if (http_req_ctx.current_type == HTTP_REQ_HEARTBEAT) {
+                parse_heartbeat_response(http_req_ctx.response_buf, http_req_ctx.response_len);
+            } else if (http_req_ctx.current_type == HTTP_REQ_GRAIN_WEIGHT) {
+                parse_grain_weight_response(http_req_ctx.response_buf, http_req_ctx.response_len);
+            }
+            // 清空缓冲区
+            http_req_ctx.response_len = 0;
+            http_req_ctx.response_buf[0] = '\0';
+            http_req_ctx.current_type = HTTP_REQ_NONE;
+            break;
+        default:
+            break;
+    }
+    return ESP_OK;
+}
+
+esp_err_t send_heartbeat(const char *device_id, heartbeat_response_callback_t callback) {
+    http_req_ctx.current_type = HTTP_REQ_HEARTBEAT;
+    http_req_ctx.response_len = 0;
+    http_req_ctx.response_buf[0] = '\0';
+    http_client_set_heartbeat_callback(callback);
     esp_http_client_config_t config = {
         .url = SERVER_URL "/device/heartbeat",
         .method = HTTP_METHOD_POST,
-        .timeout_ms = 10000,  // 10秒超时
+        .timeout_ms = 10000,
+        .event_handler = _http_event_handler,
     };
-
     client = esp_http_client_init(&config);
-
-    // 构建请求体 JSON
     cJSON *root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "device_id", device_id ? device_id : "");
     cJSON_AddStringToObject(root, "device_type", "pet_feeder");
     cJSON_AddStringToObject(root, "firmware_version", "1.0.0");
     char *json_data = cJSON_Print(root);
-
+    ESP_LOGI("HTTP_CLIENT", "POST JSON: %s", json_data);
     esp_http_client_set_post_field(client, json_data, strlen(json_data));
     esp_http_client_set_header(client, "Content-Type", "application/json");
-
     esp_err_t err = esp_http_client_perform(client);
-    ESP_LOGI("HTTP_CLIENT", "send_heartbeat result: %d", err);
-    if (err == ESP_OK) {
-        int status_code = esp_http_client_get_status_code(client);
-        ESP_LOGI("Heartbeat", "Status Code: %d", status_code);
-
-        if (status_code == 200) {
-            // 获取响应数据
-            int content_length = esp_http_client_get_content_length(client);
-            if (content_length > 0) {
-                char *response_data = malloc(content_length + 1);
-                if (response_data) {
-                    int read_len = esp_http_client_read(client, response_data, content_length);
-                    response_data[read_len] = '\0';
-                    
-                    ESP_LOGI("Heartbeat", "Response: %s", response_data);
-                    parse_heartbeat_response(response_data, read_len);
-                    
-                    free(response_data);
-                }
-            }
-        }
-    } else {
-        ESP_LOGE("Heartbeat", "HTTP POST request failed: %s", esp_err_to_name(err));
-    }
-
     cJSON_Delete(root);
     free(json_data);
-
     esp_http_client_cleanup(client);
     return err;
 }
@@ -185,33 +249,27 @@ esp_err_t http_add_feeding_plan(const char *device_id, int day_of_week, int hour
     return err;
 }
 
-esp_err_t send_grain_weight(const char *device_id, float grain_weight) {
+esp_err_t send_grain_weight(const char *device_id, float grain_weight, grain_weight_response_callback_t callback) {
+    http_req_ctx.current_type = HTTP_REQ_GRAIN_WEIGHT;
+    http_req_ctx.response_len = 0;
+    http_req_ctx.response_buf[0] = '\0';
+    http_client_set_grain_weight_callback(callback);
     esp_http_client_config_t config = {
-        .url = SERVER_URL "/upload_grain_level",  // 服务器的上传接口
+        .url = SERVER_URL "/upload_grain_level",
         .method = HTTP_METHOD_POST,
+        .event_handler = _http_event_handler,
     };
-
     client = esp_http_client_init(&config);
-
-    // 构建请求体 JSON
     cJSON *root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "device_id", device_id ? device_id : "");
-    cJSON_AddNumberToObject(root, "grain_level", grain_weight);  // 粮桶重量
+    cJSON_AddNumberToObject(root, "grain_level", grain_weight);
     char *json_data = cJSON_Print(root);
-
     esp_http_client_set_post_field(client, json_data, strlen(json_data));
     esp_http_client_set_header(client, "Content-Type", "application/json");
     ESP_LOGI("Grain Weight", "POST JSON: %s", json_data);
     esp_err_t err = esp_http_client_perform(client);
-    if (err == ESP_OK) {
-        ESP_LOGI("Grain Weight", "Status Code: %d", esp_http_client_get_status_code(client));
-    } else {
-        ESP_LOGE("Grain Weight", "HTTP POST request failed: %s", esp_err_to_name(err));
-    }
-
     cJSON_Delete(root);
     free(json_data);
-
     esp_http_client_cleanup(client);
     return err;
 }

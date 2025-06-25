@@ -16,6 +16,16 @@ static HX711_GAIN GAIN = eGAIN_128;		// amplification factor
 static unsigned long OFFSET = 0;	// used for tare weight
 static float SCALE = 1;	// used to return weight in grams, kg, ounces, whatever
 static const char* TAG = "HX711_TEST";
+
+// 回调函数实现
+static void hx711_grain_weight_callback(esp_err_t result, const char *msg) {
+    if (result == ESP_OK) {
+        ESP_LOGI(TAG, "粮食重量上报成功: %s", msg);
+    } else {
+        ESP_LOGE(TAG, "粮食重量上报失败: %s", msg);
+    }
+}
+
 void HX711_init(gpio_num_t dout, gpio_num_t pd_sck, HX711_GAIN gain )
 {
 	GPIO_PD_SCK = pd_sck;
@@ -210,7 +220,7 @@ void weight_reading_task(void* arg)
         ESP_LOGI(TAG, "******* weight = %.2fg *********", weight);
         if (fabs(weight - last_reported_weight) >= REPORT_THRESHOLD) {
             ESP_LOGI(TAG, "检测到粮桶重量变化，自动上报: %.2fg", weight);
-            send_grain_weight(device_id, weight);
+            send_grain_weight(device_id, weight, hx711_grain_weight_callback);
             last_reported_weight = weight;
         }
         vTaskDelay(pdMS_TO_TICKS(1000));

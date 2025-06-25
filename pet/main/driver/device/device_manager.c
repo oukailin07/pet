@@ -149,7 +149,7 @@ static esp_err_t send_heartbeat_with_response(void)
     }
 
     ESP_LOGI(TAG, "Sending heartbeat with device ID: %s", device_id[0] ? device_id : "NULL");
-    return send_heartbeat(device_id[0] ? device_id : NULL);
+    return send_heartbeat(device_id[0] ? device_id : NULL, heartbeat_response_handler);
 }
 
 /**
