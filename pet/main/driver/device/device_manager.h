@@ -56,6 +56,13 @@ bool device_manager_is_initialized(void);
  */
 esp_err_t device_manager_force_heartbeat(void);
 
+/**
+ * @brief 设置设备信息
+ * @param id 设备ID
+ * @param pwd 设备密码
+ */
+void device_manager_set_device_info(const char *id, const char *pwd);
+
 #ifdef __cplusplus
 }
 #endif

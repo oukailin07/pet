@@ -9,7 +9,7 @@
 #include <time.h>
 #include <math.h>
 
-#define WS_SERVER_URI "ws://192.168.0.101:8765"
+#define WS_SERVER_URI "ws://192.168.10.101:8765"
 #define FEEDING_PLAN_PATH "/spiffs/feeding_plan.json"
 
 static const char *TAG = "WS_CLIENT";
@@ -75,6 +75,17 @@ esp_err_t feeding_plan_load_all_from_spiffs(void) {
 }
 
 int feeding_plan_add(const feeding_plan_t *plan) {
+    // 查找是否有相同时间的计划
+    for (int i = 0; i < g_plan_count; ++i) {
+        if (g_plans[i].day_of_week == plan->day_of_week &&
+            g_plans[i].hour == plan->hour &&
+            g_plans[i].minute == plan->minute) {
+            // 克数相加
+            g_plans[i].feeding_amount += plan->feeding_amount;
+            feeding_plan_save_all_to_spiffs();
+            return i;
+        }
+    }
     if (g_plan_count >= MAX_FEEDING_PLANS) return -1;
     g_plans[g_plan_count++] = *plan;
     feeding_plan_save_all_to_spiffs();
@@ -236,7 +247,17 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base, i
                 if (root) {
                     cJSON *type_item = cJSON_GetObjectItem(root, "type");
                     if (type_item && cJSON_IsString(type_item)) {
-                        if (strcmp(type_item->valuestring, "delete_feeding_plan") == 0) {
+                        if (strcmp(type_item->valuestring, "register_result") == 0) {
+                            // 处理注册结果，保存device_id和password
+                            cJSON *id_item = cJSON_GetObjectItem(root, "device_id");
+                            cJSON *pwd_item = cJSON_GetObjectItem(root, "password");
+                            if (id_item && pwd_item && cJSON_IsString(id_item) && cJSON_IsString(pwd_item)) {
+                                ESP_LOGI(TAG, "收到注册结果: device_id=%s, password=%s", id_item->valuestring, pwd_item->valuestring);
+                                // 保存到全局变量和SPIFFS
+                                extern void device_manager_set_device_info(const char *id, const char *pwd); // 若有此函数
+                                device_manager_set_device_info(id_item->valuestring, pwd_item->valuestring);
+                            }
+                        } else if (strcmp(type_item->valuestring, "delete_feeding_plan") == 0) {
                             cJSON *dw = cJSON_GetObjectItem(root, "day_of_week");
                             cJSON *hour = cJSON_GetObjectItem(root, "hour");
                             cJSON *minute = cJSON_GetObjectItem(root, "minute");
@@ -283,6 +304,22 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base, i
                         } else if (strcmp(type_item->valuestring, "feeding_plan") == 0 || cJSON_GetObjectItem(root, "day_of_week")) {
                             ESP_LOGI(TAG, "收到喂食计划: %s", msg);
                             parse_and_add_plan(msg);
+                            // 回复确认
+                            const char *device_id = device_manager_get_device_id();
+                            cJSON *dw_item = cJSON_GetObjectItem(root, "day_of_week");
+                            cJSON *hour_item = cJSON_GetObjectItem(root, "hour");
+                            cJSON *minute_item = cJSON_GetObjectItem(root, "minute");
+                            cJSON *amount_item = cJSON_GetObjectItem(root, "feeding_amount");
+                            int day_of_week = dw_item ? (cJSON_IsString(dw_item) ? atoi(dw_item->valuestring) : dw_item->valueint) : 0;
+                            int hour = hour_item ? (cJSON_IsString(hour_item) ? atoi(hour_item->valuestring) : hour_item->valueint) : 0;
+                            int minute = minute_item ? (cJSON_IsString(minute_item) ? atoi(minute_item->valuestring) : minute_item->valueint) : 0;
+                            float feeding_amount = amount_item ? (cJSON_IsString(amount_item) ? atof(amount_item->valuestring) : (float)amount_item->valuedouble) : 0.0f;
+                            char confirm_msg[160];
+                            snprintf(confirm_msg, sizeof(confirm_msg),
+                                "{\"type\":\"confirm_feeding_plan\",\"device_id\":\"%s\",\"day_of_week\":%d,\"hour\":%d,\"minute\":%d,\"feeding_amount\":%.1f}",
+                                device_id, day_of_week, hour, minute, feeding_amount);
+                            esp_websocket_client_send_text(g_ws_client, confirm_msg, strlen(confirm_msg), portMAX_DELAY);
+                            ESP_LOGI(TAG, "已回复计划确认: %s", confirm_msg);
                         } else if (strcmp(type_item->valuestring, "manual_feeding") == 0 || (cJSON_GetObjectItem(root, "hour") && cJSON_GetObjectItem(root, "minute") && cJSON_GetObjectItem(root, "feeding_amount"))) {
                             ESP_LOGI(TAG, "收到手动喂食: %s", msg);
                             int hour = 0, minute = 0;
@@ -296,7 +333,29 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base, i
                             else minute = minute_item->valueint;
                             if (cJSON_IsString(amount_item)) amount = atof(amount_item->valuestring);
                             else amount = (float)amount_item->valuedouble;
-                            add_manual_feeding(hour, minute, amount);
+                            // 先查找是否有相同时间的手动喂食，有则克数相加
+                            int manual_count = get_manual_feedings_count();
+                            int found = 0;
+                            for (int i = 0; i < manual_count; ++i) {
+                                manual_feeding_t* mf = get_manual_feeding(i);
+                                if (mf && mf->hour == hour && mf->minute == minute) {
+                                    mf->feeding_amount += amount;
+                                    found = 1;
+                                    break;
+                                }
+                            }
+                            if (!found) {
+                                add_manual_feeding(hour, minute, amount);
+                            }
+                            // 回复确认
+                            const char *device_id = device_manager_get_device_id();
+                            long long timestamp = (long long)time(NULL);
+                            char confirm_msg[200];
+                            snprintf(confirm_msg, sizeof(confirm_msg),
+                                "{\"type\":\"confirm_manual_feeding\",\"device_id\":\"%s\",\"hour\":%d,\"minute\":%d,\"feeding_amount\":%.1f,\"timestamp\":%lld}",
+                                device_id, hour, minute, amount, timestamp);
+                            esp_websocket_client_send_text(g_ws_client, confirm_msg, strlen(confirm_msg), portMAX_DELAY);
+                            ESP_LOGI(TAG, "已回复手动喂食确认: %s", confirm_msg);
                         } else {
                             ESP_LOGI(TAG, "收到其它消息: %s", msg);
                         }
@@ -305,6 +364,22 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base, i
                     } else if (cJSON_GetObjectItem(root, "day_of_week")) {
                         ESP_LOGI(TAG, "收到喂食计划: %s", msg);
                         parse_and_add_plan(msg);
+                        // 回复确认
+                        const char *device_id = device_manager_get_device_id();
+                        cJSON *dw_item = cJSON_GetObjectItem(root, "day_of_week");
+                        cJSON *hour_item = cJSON_GetObjectItem(root, "hour");
+                        cJSON *minute_item = cJSON_GetObjectItem(root, "minute");
+                        cJSON *amount_item = cJSON_GetObjectItem(root, "feeding_amount");
+                        int day_of_week = dw_item ? (cJSON_IsString(dw_item) ? atoi(dw_item->valuestring) : dw_item->valueint) : 0;
+                        int hour = hour_item ? (cJSON_IsString(hour_item) ? atoi(hour_item->valuestring) : hour_item->valueint) : 0;
+                        int minute = minute_item ? (cJSON_IsString(minute_item) ? atoi(minute_item->valuestring) : minute_item->valueint) : 0;
+                        float feeding_amount = amount_item ? (cJSON_IsString(amount_item) ? atof(amount_item->valuestring) : (float)amount_item->valuedouble) : 0.0f;
+                        char confirm_msg[160];
+                        snprintf(confirm_msg, sizeof(confirm_msg),
+                            "{\"type\":\"confirm_feeding_plan\",\"device_id\":\"%s\",\"day_of_week\":%d,\"hour\":%d,\"minute\":%d,\"feeding_amount\":%.1f}",
+                            device_id, day_of_week, hour, minute, feeding_amount);
+                        esp_websocket_client_send_text(g_ws_client, confirm_msg, strlen(confirm_msg), portMAX_DELAY);
+                        ESP_LOGI(TAG, "已回复计划确认: %s", confirm_msg);
                     } else if (cJSON_GetObjectItem(root, "hour") && cJSON_GetObjectItem(root, "minute") && cJSON_GetObjectItem(root, "feeding_amount")) {
                         ESP_LOGI(TAG, "收到手动喂食: %s", msg);
                         int hour = 0, minute = 0;
@@ -318,7 +393,29 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base, i
                         else minute = minute_item->valueint;
                         if (cJSON_IsString(amount_item)) amount = atof(amount_item->valuestring);
                         else amount = (float)amount_item->valuedouble;
-                        add_manual_feeding(hour, minute, amount);
+                        // 先查找是否有相同时间的手动喂食，有则克数相加
+                        int manual_count = get_manual_feedings_count();
+                        int found = 0;
+                        for (int i = 0; i < manual_count; ++i) {
+                            manual_feeding_t* mf = get_manual_feeding(i);
+                            if (mf && mf->hour == hour && mf->minute == minute) {
+                                mf->feeding_amount += amount;
+                                found = 1;
+                                break;
+                            }
+                        }
+                        if (!found) {
+                            add_manual_feeding(hour, minute, amount);
+                        }
+                        // 回复确认
+                        const char *device_id = device_manager_get_device_id();
+                        long long timestamp = (long long)time(NULL);
+                        char confirm_msg[200];
+                        snprintf(confirm_msg, sizeof(confirm_msg),
+                            "{\"type\":\"confirm_manual_feeding\",\"device_id\":\"%s\",\"hour\":%d,\"minute\":%d,\"feeding_amount\":%.1f,\"timestamp\":%lld}",
+                            device_id, hour, minute, amount, timestamp);
+                        esp_websocket_client_send_text(g_ws_client, confirm_msg, strlen(confirm_msg), portMAX_DELAY);
+                        ESP_LOGI(TAG, "已回复手动喂食确认: %s", confirm_msg);
                     } else {
                         ESP_LOGI(TAG, "收到其它消息: %s", msg);
                     }

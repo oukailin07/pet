@@ -50,29 +50,12 @@ static esp_err_t load_device_info_from_spiffs(void);
 /**
  * @brief 心跳包响应处理函数
  */
-static void heartbeat_response_handler(bool need_device_id, const char *new_device_id, const char *new_password)
-{
-    if (need_device_id && new_device_id && new_password) {
-        ESP_LOGI(TAG, "Parsed device_id: %s, password: %s", new_device_id, new_password);
-        // 保存新的设备ID和密码
-        strncpy(device_id, new_device_id, sizeof(device_id) - 1);
-        device_id[sizeof(device_id) - 1] = '\0';
-        
-        strncpy(device_password, new_password, sizeof(device_password) - 1);
-        device_password[sizeof(device_password) - 1] = '\0';
-
-        ESP_LOGI(TAG, "Received new device ID: %s", device_id);
-        ESP_LOGI(TAG, "Received new password");
-
-        // 保存到SPIFFS
-        if (save_device_info_to_spiffs() == ESP_OK) {
-            device_initialized = true;
-            ESP_LOGI(TAG, "Device initialized successfully");
-        }
-    } else {
-        ESP_LOGI(TAG, "Heartbeat successful, device already initialized");
-    }
-}
+// static esp_err_t send_heartbeat_with_response(void)
+// {
+//     ESP_LOGI(TAG, "send_heartbeat_with_response called");
+//     // 已迁移到WebSocket方式
+//     return ESP_OK;
+// }
 
 /**
  * @brief 从SPIFFS读取设备信息
@@ -144,21 +127,6 @@ static esp_err_t save_device_info_to_spiffs(void)
 }
 
 /**
- * @brief 发送心跳包
- */
-static esp_err_t send_heartbeat_with_response(void)
-{
-    ESP_LOGI(TAG, "send_heartbeat_with_response called");
-    if (!wifi_connected) {
-        ESP_LOGW(TAG, "WiFi not connected, skipping heartbeat");
-        return ESP_FAIL;
-    }
-
-    ESP_LOGI(TAG, "Sending heartbeat with device ID: %s", device_id[0] ? device_id : "NULL");
-    return send_heartbeat(device_id[0] ? device_id : NULL, heartbeat_response_handler);
-}
-
-/**
  * @brief 心跳包任务
  */
 static void heartbeat_task(void* arg)
@@ -168,7 +136,7 @@ static void heartbeat_task(void* arg)
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
         
         // 发送心跳包
-        send_heartbeat_with_response();
+        // send_heartbeat_with_response();
     }
 }
 
@@ -274,7 +242,7 @@ esp_err_t device_manager_init(void)
     }
 
     // 设置HTTP客户端心跳包响应回调
-    http_client_set_heartbeat_callback(heartbeat_response_handler);
+    // http_client_set_heartbeat_callback(heartbeat_response_handler);
 
     ESP_LOGI(TAG, "Device manager initialized successfully");
     return ESP_OK;
@@ -289,7 +257,7 @@ esp_err_t device_manager_start_heartbeat(void)
 
     // 立即发送一次心跳包
     ESP_LOGI(TAG, "Sending initial heartbeat...");
-    send_heartbeat_with_response();
+    // send_heartbeat_with_response();
 
     // 启动定时器
     return start_heartbeat_timer();
@@ -339,6 +307,20 @@ esp_err_t device_manager_force_heartbeat(void)
         return ESP_OK;
     } else {
         // 如果任务不存在，直接发送（作为备用方案）
-        return send_heartbeat_with_response();
+        // send_heartbeat_with_response();
+        return ESP_OK;
     }
+}
+
+void device_manager_set_device_info(const char *id, const char *pwd) {
+    if (id) {
+        strncpy(device_id, id, sizeof(device_id) - 1);
+        device_id[sizeof(device_id) - 1] = '\0';
+    }
+    if (pwd) {
+        strncpy(device_password, pwd, sizeof(device_password) - 1);
+        device_password[sizeof(device_password) - 1] = '\0';
+    }
+    save_device_info_to_spiffs();
+    ESP_LOGI(TAG, "设备信息已保存: id=%s", device_id);
 } 

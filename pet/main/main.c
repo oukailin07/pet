@@ -189,7 +189,8 @@ void app_main(void)
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));    
     // 统一启动WiFi状态管理器并连接WiFi
-    if (wifi_status_manager_start("adol-3466", "12345678", wifi_status_callback) == ESP_OK) {
+    //if (wifi_status_manager_start("adol-3466", "12345678", wifi_status_callback) == ESP_OK) {
+    if (wifi_status_manager_start("CMCC-CMRk", "15221655636", wifi_status_callback) == ESP_OK) {
         ESP_LOGI("main", "WiFi状态管理器启动并连接成功");
     } else {
         ESP_LOGE("main", "WiFi状态管理器启动或连接失败");
