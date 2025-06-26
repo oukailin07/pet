@@ -2227,6 +2227,12 @@ CONFIG_CODEC_ES8388_SUPPORT=y
 CONFIG_CODEC_TAS5805M_SUPPORT=y
 # CONFIG_CODEC_ZL38063_SUPPORT is not set
 # end of Audio Codec Device Configuration
+
+#
+# ESP WebSocket client
+#
+# CONFIG_ESP_WS_CLIENT_ENABLE_DYNAMIC_BUFFER is not set
+# end of ESP WebSocket client
 # end of Component config
 
 # CONFIG_IDF_EXPERIMENTAL_FEATURES is not set

@@ -1,0 +1,344 @@
+#include "websocket_client.h"
+#include "esp_websocket_client.h"
+#include "esp_log.h"
+#include "cJSON.h"
+#include <string.h>
+#include <stdio.h>
+#include "device_manager.h"
+#include "time_utils.h" // 假设你有获取当前时间的API
+#include <time.h>
+#include <math.h>
+
+#define WS_SERVER_URI "ws://192.168.0.101:8765"
+#define FEEDING_PLAN_PATH "/spiffs/feeding_plan.json"
+
+static const char *TAG = "WS_CLIENT";
+static feeding_plan_t g_plans[MAX_FEEDING_PLANS];
+static int g_plan_count = 0;
+static esp_websocket_client_handle_t g_ws_client = NULL;
+
+// 记录上次定时计划执行的时间（按计划索引）
+static time_t g_last_plan_exec[MAX_FEEDING_PLANS] = {0};
+
+esp_err_t feeding_plan_save_all_to_spiffs(void) {
+    cJSON *arr = cJSON_CreateArray();
+    for (int i = 0; i < g_plan_count; ++i) {
+        cJSON *obj = cJSON_CreateObject();
+        cJSON_AddNumberToObject(obj, "day_of_week", g_plans[i].day_of_week);
+        cJSON_AddNumberToObject(obj, "hour", g_plans[i].hour);
+        cJSON_AddNumberToObject(obj, "minute", g_plans[i].minute);
+        cJSON_AddNumberToObject(obj, "feeding_amount", g_plans[i].feeding_amount);
+        cJSON_AddItemToArray(arr, obj);
+    }
+    char *json_str = cJSON_PrintUnformatted(arr);
+    FILE *fp = fopen(FEEDING_PLAN_PATH, "w");
+    if (!fp) {
+        ESP_LOGE(TAG, "无法写入 %s", FEEDING_PLAN_PATH);
+        cJSON_Delete(arr);
+        free(json_str);
+        return ESP_FAIL;
+    }
+    fwrite(json_str, 1, strlen(json_str), fp);
+    fclose(fp);
+    cJSON_Delete(arr);
+    free(json_str);
+    ESP_LOGI(TAG, "所有喂食计划已保存到 %s", FEEDING_PLAN_PATH);
+    return ESP_OK;
+}
+
+esp_err_t feeding_plan_load_all_from_spiffs(void) {
+    g_plan_count = 0;
+    FILE *fp = fopen(FEEDING_PLAN_PATH, "r");
+    if (!fp) {
+        ESP_LOGW(TAG, "未找到喂食计划文件 %s", FEEDING_PLAN_PATH);
+        return ESP_FAIL;
+    }
+    char buf[1024] = {0};
+    size_t len = fread(buf, 1, sizeof(buf) - 1, fp);
+    fclose(fp);
+    if (len == 0) return ESP_FAIL;
+
+    cJSON *arr = cJSON_Parse(buf);
+    if (!arr || !cJSON_IsArray(arr)) return ESP_FAIL;
+    int count = cJSON_GetArraySize(arr);
+    for (int i = 0; i < count && i < MAX_FEEDING_PLANS; ++i) {
+        cJSON *obj = cJSON_GetArrayItem(arr, i);
+        g_plans[i].day_of_week = cJSON_GetObjectItem(obj, "day_of_week")->valueint;
+        g_plans[i].hour = cJSON_GetObjectItem(obj, "hour")->valueint;
+        g_plans[i].minute = cJSON_GetObjectItem(obj, "minute")->valueint;
+        g_plans[i].feeding_amount = (float)cJSON_GetObjectItem(obj, "feeding_amount")->valuedouble;
+    }
+    g_plan_count = count < MAX_FEEDING_PLANS ? count : MAX_FEEDING_PLANS;
+    cJSON_Delete(arr);
+    ESP_LOGI(TAG, "已加载%d条喂食计划", g_plan_count);
+    return ESP_OK;
+}
+
+int feeding_plan_add(const feeding_plan_t *plan) {
+    if (g_plan_count >= MAX_FEEDING_PLANS) return -1;
+    g_plans[g_plan_count++] = *plan;
+    feeding_plan_save_all_to_spiffs();
+    return g_plan_count - 1;
+}
+
+int feeding_plan_delete(int index) {
+    if (index < 0 || index >= g_plan_count) return -1;
+    for (int i = index; i < g_plan_count - 1; ++i) {
+        g_plans[i] = g_plans[i + 1];
+    }
+    g_plan_count--;
+    feeding_plan_save_all_to_spiffs();
+    return 0;
+}
+
+int feeding_plan_count(void) {
+    return g_plan_count;
+}
+
+const feeding_plan_t* feeding_plan_get(int index) {
+    if (index < 0 || index >= g_plan_count) return NULL;
+    return &g_plans[index];
+}
+
+void feeding_plan_check_and_execute(void) {
+    time_info_t now;
+    if (get_current_time_info(&now) != ESP_OK) return;
+    ESP_LOGI(TAG, "当前时间: 星期%d %02d:%02d", now.weekday, now.hour, now.minute);
+    // 定时计划
+    for (int i = 0; i < g_plan_count; ++i) {
+        ESP_LOGI(TAG, "计划[%d]: 星期%d %02d:%02d %.1fg", i, g_plans[i].day_of_week, g_plans[i].hour, g_plans[i].minute, g_plans[i].feeding_amount);
+        if (g_plans[i].day_of_week == now.weekday &&
+            g_plans[i].hour == now.hour &&
+            g_plans[i].minute == now.minute) {
+            // 只在第一次触发时执行，1分钟内不重复
+            time_t t = time(NULL);
+            if (g_last_plan_exec[i] == 0 || t - g_last_plan_exec[i] > 50) {
+                g_last_plan_exec[i] = t;
+                ESP_LOGI(TAG, "自动执行喂食计划: 星期%d %02d:%02d %.1fg",
+                         g_plans[i].day_of_week, g_plans[i].hour, g_plans[i].minute, g_plans[i].feeding_amount);
+                // TODO: 调用本地喂食函数
+                // 上报喂食记录
+                if (g_ws_client && esp_websocket_client_is_connected(g_ws_client)) {
+                    const char *device_id = device_manager_get_device_id();
+                    char report_msg[160];
+                    snprintf(report_msg, sizeof(report_msg),
+                        "{\"type\":\"feeding_record\",\"device_id\":\"%s\",\"day_of_week\":%d,\"hour\":%d,\"minute\":%d,\"feeding_amount\":%.1f,\"timestamp\":%lld}",
+                        device_id,
+                        g_plans[i].day_of_week,
+                        g_plans[i].hour,
+                        g_plans[i].minute,
+                        g_plans[i].feeding_amount,
+                        (long long)t);
+                    esp_websocket_client_send_text(g_ws_client, report_msg, strlen(report_msg), portMAX_DELAY);
+                    ESP_LOGI(TAG, "已上报喂食记录: %s", report_msg);
+                }
+            }
+        }
+    }
+    // 手动喂食（假设你有get_manual_feedings_count/get_manual_feeding接口）
+    int manual_count = get_manual_feedings_count();
+    for (int i = 0; i < manual_count;) {
+        manual_feeding_t* mf = get_manual_feeding(i);
+        if (mf && mf->hour == now.hour && mf->minute == now.minute) {
+            ESP_LOGI(TAG, "执行手动喂食: %02d:%02d %.1fg", mf->hour, mf->minute, mf->feeding_amount);
+            // TODO: 调用本地喂食函数
+            // 上报喂食记录
+            if (g_ws_client && esp_websocket_client_is_connected(g_ws_client)) {
+                const char *device_id = device_manager_get_device_id();
+                char report_msg[160];
+                snprintf(report_msg, sizeof(report_msg),
+                    "{\"type\":\"manual_feeding\",\"device_id\":\"%s\",\"hour\":%d,\"minute\":%d,\"feeding_amount\":%.1f,\"timestamp\":%lld}",
+                    device_id,
+                    mf->hour,
+                    mf->minute,
+                    mf->feeding_amount,
+                    (long long)time(NULL));
+                esp_websocket_client_send_text(g_ws_client, report_msg, strlen(report_msg), portMAX_DELAY);
+                ESP_LOGI(TAG, "已上报手动喂食记录: %s", report_msg);
+            }
+            // 删除已执行的手动喂食
+            // 这里假设有delete_manual_feeding_by_id接口
+            int id = mf->id;
+            delete_manual_feeding(id);
+            manual_count = get_manual_feedings_count(); // 更新数量
+            // 不递增i，因已删除当前项
+        } else {
+            ++i;
+        }
+    }
+}
+
+static void parse_and_add_plan(const char *json) {
+    cJSON *root = cJSON_Parse(json);
+    if (!root) return;
+    feeding_plan_t plan = {0};
+    int ws_day = 0;
+    cJSON *day_item = cJSON_GetObjectItem(root, "day_of_week");
+    if (cJSON_IsString(day_item)) {
+        ws_day = atoi(day_item->valuestring);
+    } else {
+        ws_day = day_item->valueint;
+    }
+    if (ws_day == 7) {
+        plan.day_of_week = 0; // 周日
+    } else {
+        plan.day_of_week = ws_day; // 1-6
+    }
+    // hour
+    cJSON *hour_item = cJSON_GetObjectItem(root, "hour");
+    if (cJSON_IsString(hour_item)) {
+        plan.hour = atoi(hour_item->valuestring);
+    } else {
+        plan.hour = hour_item->valueint;
+    }
+    // minute
+    cJSON *minute_item = cJSON_GetObjectItem(root, "minute");
+    if (cJSON_IsString(minute_item)) {
+        plan.minute = atoi(minute_item->valuestring);
+    } else {
+        plan.minute = minute_item->valueint;
+    }
+    // feeding_amount
+    cJSON *amount_item = cJSON_GetObjectItem(root, "feeding_amount");
+    if (cJSON_IsString(amount_item)) {
+        plan.feeding_amount = atof(amount_item->valuestring);
+    } else {
+        plan.feeding_amount = (float)amount_item->valuedouble;
+    }
+    cJSON_Delete(root);
+    feeding_plan_add(&plan);
+}
+
+static void websocket_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data) {
+    esp_websocket_event_data_t *data = (esp_websocket_event_data_t *)event_data;
+    esp_websocket_client_handle_t client = (esp_websocket_client_handle_t)handler_args;
+    switch (event_id) {
+        case WEBSOCKET_EVENT_CONNECTED:
+            ESP_LOGI(TAG, "WebSocket connected");
+            {
+                const char *device_id = device_manager_get_device_id();
+                char reg_msg[64];
+                snprintf(reg_msg, sizeof(reg_msg), "{\"device_id\":\"%s\"}", device_id);
+                esp_websocket_client_send_text(client, reg_msg, strlen(reg_msg), portMAX_DELAY);
+                ESP_LOGI(TAG, "Sent register: %s", reg_msg);
+            }
+            break;
+        case WEBSOCKET_EVENT_DISCONNECTED:
+            ESP_LOGI(TAG, "WebSocket disconnected");
+            break;
+        case WEBSOCKET_EVENT_DATA:
+            if (data->data_len > 0) {
+                ESP_LOGI(TAG, "Received data: %.*s", data->data_len, (char *)data->data_ptr);
+                char msg[256] = {0};
+                int len = data->data_len < sizeof(msg) - 1 ? data->data_len : sizeof(msg) - 1;
+                memcpy(msg, data->data_ptr, len);
+                cJSON *root = cJSON_Parse(msg);
+                if (root) {
+                    cJSON *type_item = cJSON_GetObjectItem(root, "type");
+                    if (type_item && cJSON_IsString(type_item)) {
+                        if (strcmp(type_item->valuestring, "delete_feeding_plan") == 0) {
+                            cJSON *dw = cJSON_GetObjectItem(root, "day_of_week");
+                            cJSON *hour = cJSON_GetObjectItem(root, "hour");
+                            cJSON *minute = cJSON_GetObjectItem(root, "minute");
+                            cJSON *amount = cJSON_GetObjectItem(root, "feeding_amount");
+                            int deleted = 0;
+                            if (dw && hour && minute && amount) {
+                                for (int i = 0; i < g_plan_count; ++i) {
+                                    if (g_plans[i].day_of_week == dw->valueint &&
+                                        g_plans[i].hour == hour->valueint &&
+                                        g_plans[i].minute == minute->valueint &&
+                                        fabs(g_plans[i].feeding_amount - (float)amount->valuedouble) < 0.01f) {
+                                        ESP_LOGI(TAG, "收到删除喂食计划指令: 匹配到本地计划索引%d", i);
+                                        feeding_plan_delete(i);
+                                        deleted = 1;
+                                        break;
+                                    }
+                                }
+                            }
+                            if (!deleted) {
+                                ESP_LOGW(TAG, "未能根据时间信息删除喂食计划");
+                            }
+                        } else if (strcmp(type_item->valuestring, "delete_manual_feeding") == 0) {
+                            cJSON *hour = cJSON_GetObjectItem(root, "hour");
+                            cJSON *minute = cJSON_GetObjectItem(root, "minute");
+                            cJSON *amount = cJSON_GetObjectItem(root, "feeding_amount");
+                            int deleted = 0;
+                            int manual_count = get_manual_feedings_count();
+                            if (hour && minute && amount) {
+                                for (int i = 0; i < manual_count; ++i) {
+                                    manual_feeding_t* mf = get_manual_feeding(i);
+                                    if (mf && mf->hour == hour->valueint &&
+                                        mf->minute == minute->valueint &&
+                                        fabs(mf->feeding_amount - (float)amount->valuedouble) < 0.01f) {
+                                        ESP_LOGI(TAG, "收到删除手动喂食指令: 匹配到本地手动喂食索引%d", i);
+                                        delete_manual_feeding(mf->id);
+                                        deleted = 1;
+                                        break;
+                                    }
+                                }
+                            }
+                            if (!deleted) {
+                                ESP_LOGW(TAG, "未能根据时间信息删除手动喂食");
+                            }
+                        } else if (strcmp(type_item->valuestring, "feeding_plan") == 0 || cJSON_GetObjectItem(root, "day_of_week")) {
+                            ESP_LOGI(TAG, "收到喂食计划: %s", msg);
+                            parse_and_add_plan(msg);
+                        } else if (strcmp(type_item->valuestring, "manual_feeding") == 0 || (cJSON_GetObjectItem(root, "hour") && cJSON_GetObjectItem(root, "minute") && cJSON_GetObjectItem(root, "feeding_amount"))) {
+                            ESP_LOGI(TAG, "收到手动喂食: %s", msg);
+                            int hour = 0, minute = 0;
+                            float amount = 0;
+                            cJSON *hour_item = cJSON_GetObjectItem(root, "hour");
+                            cJSON *minute_item = cJSON_GetObjectItem(root, "minute");
+                            cJSON *amount_item = cJSON_GetObjectItem(root, "feeding_amount");
+                            if (cJSON_IsString(hour_item)) hour = atoi(hour_item->valuestring);
+                            else hour = hour_item->valueint;
+                            if (cJSON_IsString(minute_item)) minute = atoi(minute_item->valuestring);
+                            else minute = minute_item->valueint;
+                            if (cJSON_IsString(amount_item)) amount = atof(amount_item->valuestring);
+                            else amount = (float)amount_item->valuedouble;
+                            add_manual_feeding(hour, minute, amount);
+                        } else {
+                            ESP_LOGI(TAG, "收到其它消息: %s", msg);
+                        }
+                    } else if (cJSON_GetObjectItem(root, "status")) {
+                        ESP_LOGI(TAG, "注册响应: %s", msg);
+                    } else if (cJSON_GetObjectItem(root, "day_of_week")) {
+                        ESP_LOGI(TAG, "收到喂食计划: %s", msg);
+                        parse_and_add_plan(msg);
+                    } else if (cJSON_GetObjectItem(root, "hour") && cJSON_GetObjectItem(root, "minute") && cJSON_GetObjectItem(root, "feeding_amount")) {
+                        ESP_LOGI(TAG, "收到手动喂食: %s", msg);
+                        int hour = 0, minute = 0;
+                        float amount = 0;
+                        cJSON *hour_item = cJSON_GetObjectItem(root, "hour");
+                        cJSON *minute_item = cJSON_GetObjectItem(root, "minute");
+                        cJSON *amount_item = cJSON_GetObjectItem(root, "feeding_amount");
+                        if (cJSON_IsString(hour_item)) hour = atoi(hour_item->valuestring);
+                        else hour = hour_item->valueint;
+                        if (cJSON_IsString(minute_item)) minute = atoi(minute_item->valuestring);
+                        else minute = minute_item->valueint;
+                        if (cJSON_IsString(amount_item)) amount = atof(amount_item->valuestring);
+                        else amount = (float)amount_item->valuedouble;
+                        add_manual_feeding(hour, minute, amount);
+                    } else {
+                        ESP_LOGI(TAG, "收到其它消息: %s", msg);
+                    }
+                    cJSON_Delete(root);
+                }
+            }
+            break;
+        case WEBSOCKET_EVENT_ERROR:
+            ESP_LOGI(TAG, "WebSocket error");
+            break;
+    }
+}
+
+void websocket_client_start(void) {
+    feeding_plan_load_all_from_spiffs(); // 启动时加载所有计划
+
+    const esp_websocket_client_config_t ws_cfg = {
+        .uri = WS_SERVER_URI,
+    };
+    g_ws_client = esp_websocket_client_init(&ws_cfg);
+    esp_websocket_register_events(g_ws_client, WEBSOCKET_EVENT_ANY, websocket_event_handler, (void *)g_ws_client);
+    esp_websocket_client_start(g_ws_client);
+} 

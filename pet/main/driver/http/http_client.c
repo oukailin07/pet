@@ -1,6 +1,7 @@
 #include "http_client.h"
 #include <string.h>
 #include <stdio.h>
+#include <math.h>
 #include <esp_log.h>
 #include <esp_system.h>
 #include <esp_wifi.h>
@@ -14,7 +15,7 @@
 #include "cJSON.h"
 // HTTP 客户端配置
 esp_http_client_handle_t client;
-#define SERVER_URL "http://192.168.10.101:80"  // Flask server URL
+#define SERVER_URL "http://192.168.0.101:80"  // Flask server URL
 // 定义请求类型
 typedef enum {
     HTTP_REQ_NONE = 0,
@@ -262,7 +263,11 @@ esp_err_t send_grain_weight(const char *device_id, float grain_weight, grain_wei
     client = esp_http_client_init(&config);
     cJSON *root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "device_id", device_id ? device_id : "");
-    cJSON_AddNumberToObject(root, "grain_level", grain_weight);
+    // 四舍五入到一位小数并格式化为字符串
+    float rounded_weight = roundf(grain_weight * 10.0f) / 10.0f;
+    char weight_str[32];
+    snprintf(weight_str, sizeof(weight_str), "%.1f", rounded_weight);
+    cJSON_AddStringToObject(root, "grain_level", weight_str);
     char *json_data = cJSON_Print(root);
     esp_http_client_set_post_field(client, json_data, strlen(json_data));
     esp_http_client_set_header(client, "Content-Type", "application/json");

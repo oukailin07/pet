@@ -108,6 +108,13 @@ manual_feeding_t* get_manual_feeding(int index);
  */
 esp_err_t execute_immediate_feeding(float feeding_amount);
 
+/**
+ * @brief 删除手动喂食
+ * @param manual_id 手动喂食ID
+ * @return esp_err_t ESP_OK成功，ESP_FAIL失败
+ */
+esp_err_t delete_manual_feeding(int manual_id);
+
 #ifdef __cplusplus
 }
 #endif

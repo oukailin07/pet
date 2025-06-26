@@ -41,6 +41,7 @@
 #include "feeding_manager.h"
 #include "device_manager.h"
 #include "app_timer.h"
+#include "websocket_client.h"
 #define PCM_FILE_PATH "/spiffs/test.pcm"
 #define BUFFER_SIZE 512
 
@@ -125,6 +126,15 @@ void sync_time_sntp(void)
     }
 }
 
+// 自动喂食计划定时任务
+void feeding_plan_task(void *arg) {
+    while (1) {
+        ESP_LOGI("main", "自动喂食计划定时任务");
+        feeding_plan_check_and_execute();
+        vTaskDelay(pdMS_TO_TICKS(1000)); // 每秒检查一次
+    }
+}
+
 void app_main(void)
 {
     // 1. 初始化NVS
@@ -179,7 +189,7 @@ void app_main(void)
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));    
     // 统一启动WiFi状态管理器并连接WiFi
-    if (wifi_status_manager_start("CMCC-CMRk", "15221655636", wifi_status_callback) == ESP_OK) {
+    if (wifi_status_manager_start("adol-3466", "12345678", wifi_status_callback) == ESP_OK) {
         ESP_LOGI("main", "WiFi状态管理器启动并连接成功");
     } else {
         ESP_LOGE("main", "WiFi状态管理器启动或连接失败");
@@ -243,8 +253,11 @@ void app_main(void)
     }
     
     //tuya_mqtt_start();
-    
+    // 启动WebSocket客户端
+    websocket_client_start();
 
+    // 启动自动喂食计划定时任务
+    xTaskCreatePinnedToCore(feeding_plan_task, "feeding_plan_task", 4096, NULL, 5, NULL,1);
 }
 
 

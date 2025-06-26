@@ -30,8 +30,14 @@ static bool wifi_connected = false;
 // 心跳包定时器
 static TimerHandle_t heartbeat_timer = NULL;
 
+// 心跳包任务句柄
+static TaskHandle_t heartbeat_task_handle = NULL;
+
 // 心跳包间隔（5分钟）
 #define HEARTBEAT_INTERVAL_MS (5 * 60 * 1000)
+
+// 心跳包任务通知值
+#define HEARTBEAT_NOTIFICATION_VALUE 0x01
 
 // 前向声明
 static esp_err_t save_device_info_to_spiffs(void);
@@ -153,12 +159,28 @@ static esp_err_t send_heartbeat_with_response(void)
 }
 
 /**
+ * @brief 心跳包任务
+ */
+static void heartbeat_task(void* arg)
+{
+    while (1) {
+        // 等待心跳包通知
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        
+        // 发送心跳包
+        send_heartbeat_with_response();
+    }
+}
+
+/**
  * @brief 心跳包定时器回调函数
  */
 static void heartbeat_timer_callback(TimerHandle_t xTimer)
 {
-    ESP_LOGI(TAG, "Sending heartbeat...");
-    send_heartbeat_with_response();
+    // 只发送通知给心跳包任务，避免在定时器服务任务中执行复杂操作
+    if (heartbeat_task_handle != NULL) {
+        xTaskNotifyGive(heartbeat_task_handle);
+    }
 }
 
 /**
@@ -169,6 +191,25 @@ static esp_err_t start_heartbeat_timer(void)
     if (heartbeat_timer != NULL) {
         ESP_LOGW(TAG, "Heartbeat timer already exists");
         return ESP_OK;
+    }
+
+    // 创建心跳包任务
+    if (heartbeat_task_handle == NULL) {
+        BaseType_t ret = xTaskCreatePinnedToCore(
+            heartbeat_task,
+            "heartbeat_task",
+            4096,  // 给心跳包任务分配足够的栈空间
+            NULL,
+            5,     // 中等优先级
+            &heartbeat_task_handle,
+            0      // 在CPU0上运行
+        );
+        
+        if (ret != pdPASS) {
+            ESP_LOGE(TAG, "Failed to create heartbeat task");
+            return ESP_FAIL;
+        }
+        ESP_LOGI(TAG, "Heartbeat task created successfully");
     }
 
     heartbeat_timer = xTimerCreate(
@@ -204,6 +245,14 @@ static esp_err_t stop_heartbeat_timer(void)
         heartbeat_timer = NULL;
         ESP_LOGI(TAG, "Heartbeat timer stopped");
     }
+    
+    // 删除心跳包任务
+    if (heartbeat_task_handle != NULL) {
+        vTaskDelete(heartbeat_task_handle);
+        heartbeat_task_handle = NULL;
+        ESP_LOGI(TAG, "Heartbeat task deleted");
+    }
+    
     return ESP_OK;
 }
 
@@ -283,5 +332,13 @@ bool device_manager_is_initialized(void)
 esp_err_t device_manager_force_heartbeat(void)
 {
     ESP_LOGI(TAG, "Force sending heartbeat...");
-    return send_heartbeat_with_response();
+    
+    // 如果心跳包任务存在，发送通知
+    if (heartbeat_task_handle != NULL) {
+        xTaskNotifyGive(heartbeat_task_handle);
+        return ESP_OK;
+    } else {
+        // 如果任务不存在，直接发送（作为备用方案）
+        return send_heartbeat_with_response();
+    }
 } 

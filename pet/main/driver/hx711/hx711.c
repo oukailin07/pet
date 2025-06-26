@@ -204,10 +204,10 @@ void weight_reading_task(void* arg)
 
     // 第二步：读数并设置校准比例
     unsigned long raw = HX711_get_value(10);  // 获取校准时的读数
-    float known_weight_g = 1.0f;
+    float known_weight_g = 90.0f;
     float scale = raw / known_weight_g;
     HX711_set_scale(scale);
-    ESP_LOGI(TAG, "设置scale = %.2f", scale);
+    ESP_LOGI(TAG, "设置scale = %.2f 已知重量 = %.2f g raw = %ld", scale, known_weight_g, raw);
 
     // 循环读取重量（单位：克）
     float weight;
@@ -219,9 +219,11 @@ void weight_reading_task(void* arg)
         weight = HX711_get_units(AVG_SAMPLES);
         ESP_LOGI(TAG, "******* weight = %.2fg *********", weight);
         if (fabs(weight - last_reported_weight) >= REPORT_THRESHOLD) {
-            ESP_LOGI(TAG, "检测到粮桶重量变化，自动上报: %.2fg", weight);
-            send_grain_weight(device_id, weight, hx711_grain_weight_callback);
-            last_reported_weight = weight;
+            // 只保留一位小数
+            float rounded_weight = roundf(weight * 10.0f) / 10.0f;
+            ESP_LOGI(TAG, "检测到粮桶重量变化，自动上报: %.1fg", rounded_weight);
+            send_grain_weight(device_id, rounded_weight, hx711_grain_weight_callback);
+            last_reported_weight = rounded_weight;
         }
         vTaskDelay(pdMS_TO_TICKS(1000));
     }

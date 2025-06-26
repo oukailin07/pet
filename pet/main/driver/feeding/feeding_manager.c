@@ -583,4 +583,22 @@ esp_err_t execute_immediate_feeding(float feeding_amount)
     }
     
     return ESP_FAIL;
+}
+
+esp_err_t delete_manual_feeding(int manual_id)
+{
+    for (int i = 0; i < manual_count; i++) {
+        if (manual_feedings[i].id == manual_id) {
+            // 删除手动喂食
+            for (int j = i; j < manual_count - 1; j++) {
+                manual_feedings[j] = manual_feedings[j + 1];
+            }
+            manual_count--;
+            save_manual_feedings_to_spiffs();
+            ESP_LOGI(TAG, "删除手动喂食成功: ID %d", manual_id);
+            return ESP_OK;
+        }
+    }
+    ESP_LOGE(TAG, "未找到要删除的手动喂食: ID %d", manual_id);
+    return ESP_FAIL;
 } 
