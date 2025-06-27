@@ -15,7 +15,8 @@
 #include "cJSON.h"
 // HTTP 客户端配置
 esp_http_client_handle_t client;
-#define SERVER_URL "http://192.168.0.101:80"  // Flask server URL
+#define SERVER_URL "http://120.27.237.8:80"  // Flask server URL
+//#define SERVER_URL "http://192.168.0.101:80"  // Flask server URL
 // 定义请求类型
 typedef enum {
     HTTP_REQ_NONE = 0,

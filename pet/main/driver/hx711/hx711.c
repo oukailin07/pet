@@ -73,10 +73,20 @@ uint8_t HX711_shiftIn()
 unsigned long HX711_read()
 {
 	gpio_set_level(GPIO_PD_SCK, LOW);
-	// wait for the chip to become ready
-	while (HX711_is_ready()) 
+	
+	// wait for the chip to become ready with timeout
+	int timeout_count = 0;
+	const int MAX_TIMEOUT = 1000; // 最大等待1000次，约10秒
+	
+	while (HX711_is_ready() && timeout_count < MAX_TIMEOUT) 
 	{
 		vTaskDelay(10 / portTICK_PERIOD_MS);
+		timeout_count++;
+	}
+	
+	if (timeout_count >= MAX_TIMEOUT) {
+		ESP_LOGE(TAG, "HX711读取超时，传感器可能未连接或损坏");
+		return 0;
 	}
 
 	unsigned long value = 0;
@@ -107,7 +117,12 @@ unsigned long HX711_read()
 	portENABLE_INTERRUPTS();
 	//--- Exit critical section ----
 
-	value =value^0x800000;
+	value = value^0x800000;
+	
+	// 验证读取值的合理性
+	if (value == 0 || value > 0x7FFFFF) {
+		ESP_LOGW(TAG, "HX711读取值异常: %ld", value);
+	}
 
 	return (value);
 }
@@ -137,16 +152,45 @@ unsigned long HX711_get_value(char times)
 
 float HX711_get_units(char times) 
 {
-	return HX711_get_value(times) / SCALE;
+	unsigned long value = HX711_get_value(times);
+	
+	// 防止除零错误
+	if (SCALE <= 0.0f) {
+		ESP_LOGE(TAG, "SCALE值无效: %.6f，请重新校准传感器", SCALE);
+		return 0.0f;
+	}
+	
+	float units = (float)value / SCALE;
+	
+	// 检查是否为无穷大或NaN
+	if (isinf(units) || isnan(units)) {
+		ESP_LOGE(TAG, "重量读数异常: value=%ld, SCALE=%.6f, units=%.2f", value, SCALE, units);
+		return 0.0f;
+	}
+	
+	// 限制合理范围
+	if (units < -10000.0f || units > 10000.0f) {
+		ESP_LOGW(TAG, "重量读数超出合理范围: %.2fg，可能传感器异常", units);
+		return 0.0f;
+	}
+	
+	return units;
 }
 
 void HX711_tare( ) 
 {
-	//ESP_LOGI(DEBUGTAG, "===================== START TARE ====================");
+	ESP_LOGI(TAG, "===================== START TARE ====================");
 	unsigned long sum = 0; 
 	sum = HX711_read_average(20);
+	
+	// 验证offset值的合理性
+	if (sum == 0 || sum > 0x7FFFFF) {
+		ESP_LOGE(TAG, "Tare读数异常: %ld，可能传感器连接有问题", sum);
+		return;
+	}
+	
 	HX711_set_offset(sum);
-	//ESP_LOGI(DEBUGTAG, "===================== END TARE: %ld ====================",sum);
+	ESP_LOGI(TAG, "===================== END TARE: %ld ====================", sum);
 }
 
 void HX711_set_scale(float scale ) 
@@ -182,36 +226,101 @@ void HX711_power_up()
 	gpio_set_level(GPIO_PD_SCK, LOW);
 }
 
+// 添加重置校准函数
+void HX711_reset_calibration(void)
+{
+    OFFSET = 0;
+    SCALE = 1.0f;
+    ESP_LOGI(TAG, "HX711校准已重置");
+}
 
-
-
-
+// 添加获取当前校准状态的函数
+void HX711_print_calibration_status(void)
+{
+    ESP_LOGI(TAG, "HX711校准状态:");
+    ESP_LOGI(TAG, "- OFFSET: %ld", OFFSET);
+    ESP_LOGI(TAG, "- SCALE: %.6f", SCALE);
+    ESP_LOGI(TAG, "- GAIN: %d", GAIN);
+}
 
 void weight_reading_task(void* arg)
 {
+    ESP_LOGI(TAG, "开始初始化HX711重量传感器...");
     HX711_init(GPIO_DATA, GPIO_SCLK, eGAIN_128); 
+    
+    // 等待传感器稳定
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    
+    // 检查传感器是否就绪
+    if (!HX711_is_ready()) {
+        ESP_LOGE(TAG, "HX711传感器未就绪，请检查连接");
+        vTaskDelete(NULL);
+        return;
+    }
+    
+    ESP_LOGI(TAG, "HX711传感器初始化成功");
 
     // 第一步：清零（无物体）
+    ESP_LOGI(TAG, "开始去皮校准，请确保传感器上没有物体...");
+    vTaskDelay(pdMS_TO_TICKS(2000));  // 等待2秒确保稳定
+    
     HX711_tare();
+    
+    // 验证tare是否成功
+    if (OFFSET == 0) {
+        ESP_LOGE(TAG, "去皮失败，OFFSET为0");
+        vTaskDelete(NULL);
+        return;
+    }
+    
     ESP_LOGI(TAG, "完成去皮,请放上一个已知重量的物体(如500g水)...");
     vTaskDelay(pdMS_TO_TICKS(5000));  // 等你手动放上去
 
     // 第二步：读数并设置校准比例
     unsigned long raw = HX711_get_value(10);  // 获取校准时的读数
+    ESP_LOGI(TAG, "校准物体原始读数: %ld", raw);
+    
+    if (raw == 0) {
+        ESP_LOGE(TAG, "校准物体读数为0，请检查传感器和物体");
+        vTaskDelete(NULL);
+        return;
+    }
+    
     float known_weight_g = 90.0f;
-    float scale = raw / known_weight_g;
+    float scale = (float)raw / known_weight_g;
+    
+    // 验证scale值的合理性
+    if (scale <= 0.0f || scale > 1000000.0f) {
+        ESP_LOGE(TAG, "计算出的SCALE值异常: %.6f，请检查已知重量设置", scale);
+        vTaskDelete(NULL);
+        return;
+    }
+    
     HX711_set_scale(scale);
     ESP_LOGI(TAG, "设置scale = %.2f 已知重量 = %.2f g raw = %ld", scale, known_weight_g, raw);
+    
+    // 测试校准结果
+    float test_weight = HX711_get_units(5);
+    ESP_LOGI(TAG, "校准测试: 读取重量 = %.2fg (期望: %.2fg)", test_weight, known_weight_g);
 
     // 循环读取重量（单位：克）
     float weight;
     float last_reported_weight = 0.0f;
     const float REPORT_THRESHOLD = 20.0f;
-    const char *device_id = device_manager_get_device_id(); // TODO: 替换为实际获取的设备ID
+    const char *device_id = device_manager_get_device_id();
+    
+    ESP_LOGI(TAG, "开始重量监控循环...");
     while (1)
     {
         weight = HX711_get_units(AVG_SAMPLES);
-        ESP_LOGI(TAG, "******* weight = %.2fg *********", weight);
+        
+        // 添加调试信息
+        if (weight != 0.0f) {
+            ESP_LOGI(TAG, "******* weight = %.2fg *********", weight);
+        } else {
+            ESP_LOGW(TAG, "重量读数为0，可能传感器异常");
+        }
+        
         if (fabs(weight - last_reported_weight) >= REPORT_THRESHOLD) {
             // 只保留一位小数
             float rounded_weight = roundf(weight * 10.0f) / 10.0f;

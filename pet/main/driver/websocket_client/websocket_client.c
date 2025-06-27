@@ -8,8 +8,8 @@
 #include "cJSON.h"
 #include "device_manager.h"
 #include "time_utils.h" // 假设你有获取当前时间的API
-
-#define WS_SERVER_URI "ws://192.168.0.101:8765"
+#define WS_SERVER_URI "ws://120.27.237.8:8765"
+//#define WS_SERVER_URI "ws://192.168.0.101:8765"
 #define FEEDING_PLAN_PATH "/spiffs/feeding_plan.json"
 
 static const char *TAG = "WS_CLIENT";
