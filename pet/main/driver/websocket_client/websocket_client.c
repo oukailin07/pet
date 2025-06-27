@@ -8,6 +8,7 @@
 #include "cJSON.h"
 #include "device_manager.h"
 #include "time_utils.h" // 假设你有获取当前时间的API
+#include "esp_https_ota.h"
 #define WS_SERVER_URI "ws://120.27.237.8:8765"
 //#define WS_SERVER_URI "ws://192.168.0.101:8765"
 #define FEEDING_PLAN_PATH "/spiffs/feeding_plan.json"
@@ -222,6 +223,33 @@ static void parse_and_add_plan(const char *json) {
     }
     cJSON_Delete(root);
     feeding_plan_add(&plan);
+}
+
+// OTA任务，支持动态URL
+void ota_task(void *pvParameter)
+{
+    char *url = (char *)pvParameter;
+    const char *device_id = device_manager_get_device_id();
+    char url_with_id[512];
+    if (strchr(url, '?')) {
+        snprintf(url_with_id, sizeof(url_with_id), "%s&device_id=%s", url, device_id);
+    } else {
+        snprintf(url_with_id, sizeof(url_with_id), "%s?device_id=%s", url, device_id);
+    }
+    ESP_LOGI("OTA", "Starting OTA, url: %s", url_with_id);
+    esp_http_client_config_t config = {
+        .url = url_with_id,
+        // .cert_pem = (char *)server_cert_pem_start, // 如果是HTTPS且有自签名证书
+    };
+    esp_err_t ret = esp_https_ota(&config);
+    if (ret == ESP_OK) {
+        ESP_LOGI("OTA", "OTA upgrade successful, restarting...");
+        esp_restart();
+    } else {
+        ESP_LOGE("OTA", "OTA upgrade failed: %s", esp_err_to_name(ret));
+    }
+    free(url);
+    vTaskDelete(NULL);
 }
 
 static void websocket_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data) {
@@ -439,6 +467,13 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base, i
                             ESP_LOGI(TAG, "已回复sync_result: %s", json_str);
                             cJSON_Delete(result);
                             free(json_str);
+                        } else if (strcmp(type_item->valuestring, "ota_update") == 0) {
+                            cJSON *url_item = cJSON_GetObjectItem(root, "url");
+                            if (url_item && cJSON_IsString(url_item)) {
+                                ESP_LOGI(TAG, "收到OTA升级指令，固件URL: %s", url_item->valuestring);
+                                char *ota_url = strdup(url_item->valuestring);
+                                xTaskCreate(ota_task, "ota_task", 8192, ota_url, 5, NULL);
+                            }
                         } else {
                             ESP_LOGI(TAG, "收到其它消息: %s", msg);
                         }

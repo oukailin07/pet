@@ -42,6 +42,7 @@
 #include "device_manager.h"
 #include "app_timer.h"
 #include "websocket_client.h"
+#include "esp_https_ota.h"
 #define PCM_FILE_PATH "/spiffs/test.pcm"
 #define BUFFER_SIZE 512
 
@@ -259,6 +260,9 @@ void app_main(void)
 
     // 启动自动喂食计划定时任务
     xTaskCreatePinnedToCore(feeding_plan_task, "feeding_plan_task", 4096, NULL, 5, NULL,1);
+
+    // 启动OTA任务（可根据实际需求放到按键/菜单/定时等触发）
+    // xTaskCreate(&ota_task, "ota_task", 8192, NULL, 5, NULL);
 }
 
 
