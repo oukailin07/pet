@@ -1,15 +1,15 @@
+#include <stdio.h>
+#include <string.h>
+#include <time.h>
+#include <math.h>
 #include "websocket_client.h"
 #include "esp_websocket_client.h"
 #include "esp_log.h"
 #include "cJSON.h"
-#include <string.h>
-#include <stdio.h>
 #include "device_manager.h"
 #include "time_utils.h" // 假设你有获取当前时间的API
-#include <time.h>
-#include <math.h>
 
-#define WS_SERVER_URI "ws://192.168.10.101:8765"
+#define WS_SERVER_URI "ws://192.168.0.101:8765"
 #define FEEDING_PLAN_PATH "/spiffs/feeding_plan.json"
 
 static const char *TAG = "WS_CLIENT";
@@ -150,6 +150,7 @@ void feeding_plan_check_and_execute(void) {
     int manual_count = get_manual_feedings_count();
     for (int i = 0; i < manual_count;) {
         manual_feeding_t* mf = get_manual_feeding(i);
+        ESP_LOGI(TAG, "手动喂食[%d]: %02d:%02d %.1fg", i, mf->hour, mf->minute, mf->feeding_amount);
         if (mf && mf->hour == now.hour && mf->minute == now.minute) {
             ESP_LOGI(TAG, "执行手动喂食: %02d:%02d %.1fg", mf->hour, mf->minute, mf->feeding_amount);
             // TODO: 调用本地喂食函数
@@ -279,6 +280,18 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base, i
                             if (!deleted) {
                                 ESP_LOGW(TAG, "未能根据时间信息删除喂食计划");
                             }
+                            // 回复删除计划确认
+                            const char *device_id = device_manager_get_device_id();
+                            int day_of_week = dw ? (cJSON_IsString(dw) ? atoi(dw->valuestring) : dw->valueint) : 0;
+                            int hour_val = hour ? (cJSON_IsString(hour) ? atoi(hour->valuestring) : hour->valueint) : 0;
+                            int minute_val = minute ? (cJSON_IsString(minute) ? atoi(minute->valuestring) : minute->valueint) : 0;
+                            float feeding_amount = amount ? (cJSON_IsString(amount) ? atof(amount->valuestring) : (float)amount->valuedouble) : 0.0f;
+                            char confirm_msg[160];
+                            snprintf(confirm_msg, sizeof(confirm_msg),
+                                "{\"type\":\"confirm_delete_feeding_plan\",\"device_id\":\"%s\",\"day_of_week\":%d,\"hour\":%d,\"minute\":%d,\"feeding_amount\":%.1f}",
+                                device_id, day_of_week, hour_val, minute_val, feeding_amount);
+                            esp_websocket_client_send_text(g_ws_client, confirm_msg, strlen(confirm_msg), portMAX_DELAY);
+                            ESP_LOGI(TAG, "已回复删除计划确认: %s", confirm_msg);
                         } else if (strcmp(type_item->valuestring, "delete_manual_feeding") == 0) {
                             cJSON *hour = cJSON_GetObjectItem(root, "hour");
                             cJSON *minute = cJSON_GetObjectItem(root, "minute");
@@ -301,6 +314,17 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base, i
                             if (!deleted) {
                                 ESP_LOGW(TAG, "未能根据时间信息删除手动喂食");
                             }
+                            // 回复删除手动喂食确认
+                            const char *device_id = device_manager_get_device_id();
+                            int hour_val = hour ? (cJSON_IsString(hour) ? atoi(hour->valuestring) : hour->valueint) : 0;
+                            int minute_val = minute ? (cJSON_IsString(minute) ? atoi(minute->valuestring) : minute->valueint) : 0;
+                            float feeding_amount = amount ? (cJSON_IsString(amount) ? atof(amount->valuestring) : (float)amount->valuedouble) : 0.0f;
+                            char confirm_msg[160];
+                            snprintf(confirm_msg, sizeof(confirm_msg),
+                                "{\"type\":\"confirm_delete_manual_feeding\",\"device_id\":\"%s\",\"hour\":%d,\"minute\":%d,\"feeding_amount\":%.1f}",
+                                device_id, hour_val, minute_val, feeding_amount);
+                            esp_websocket_client_send_text(g_ws_client, confirm_msg, strlen(confirm_msg), portMAX_DELAY);
+                            ESP_LOGI(TAG, "已回复删除手动喂食确认: %s", confirm_msg);
                         } else if (strcmp(type_item->valuestring, "feeding_plan") == 0 || cJSON_GetObjectItem(root, "day_of_week")) {
                             ESP_LOGI(TAG, "收到喂食计划: %s", msg);
                             parse_and_add_plan(msg);
