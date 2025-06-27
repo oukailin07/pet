@@ -4,6 +4,7 @@
 #include "http_client.h"
 #include <math.h>
 #include "device_manager.h"
+#include "esp_websocket_client.h"
 #define HIGH 1
 #define LOW 0
 #define CLOCK_DELAY_US 20
@@ -17,14 +18,7 @@ static unsigned long OFFSET = 0;	// used for tare weight
 static float SCALE = 1;	// used to return weight in grams, kg, ounces, whatever
 static const char* TAG = "HX711_TEST";
 
-// 回调函数实现
-static void hx711_grain_weight_callback(esp_err_t result, const char *msg) {
-    if (result == ESP_OK) {
-        ESP_LOGI(TAG, "粮食重量上报成功: %s", msg);
-    } else {
-        ESP_LOGE(TAG, "粮食重量上报失败: %s", msg);
-    }
-}
+
 
 void HX711_init(gpio_num_t dout, gpio_num_t pd_sck, HX711_GAIN gain )
 {
@@ -222,7 +216,18 @@ void weight_reading_task(void* arg)
             // 只保留一位小数
             float rounded_weight = roundf(weight * 10.0f) / 10.0f;
             ESP_LOGI(TAG, "检测到粮桶重量变化，自动上报: %.1fg", rounded_weight);
-            send_grain_weight(device_id, rounded_weight, hx711_grain_weight_callback);
+            // WebSocket上报粮桶重量
+            extern esp_websocket_client_handle_t g_ws_client; // 声明全局WebSocket句柄
+            if (g_ws_client && esp_websocket_client_is_connected(g_ws_client)) {
+                char ws_msg[128];
+                snprintf(ws_msg, sizeof(ws_msg),
+                    "{\"type\":\"grain_weight\",\"device_id\":\"%s\",\"grain_weight\":%.1f}",
+                    device_id, rounded_weight);
+                esp_websocket_client_send_text(g_ws_client, ws_msg, strlen(ws_msg), portMAX_DELAY);
+                ESP_LOGI(TAG, "WebSocket上报粮桶重量: %s", ws_msg);
+            } else {
+                ESP_LOGW(TAG, "WebSocket未连接，无法上报粮桶重量");
+            }
             last_reported_weight = rounded_weight;
         }
         vTaskDelay(pdMS_TO_TICKS(1000));

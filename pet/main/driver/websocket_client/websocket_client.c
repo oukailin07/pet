@@ -15,10 +15,13 @@
 static const char *TAG = "WS_CLIENT";
 static feeding_plan_t g_plans[MAX_FEEDING_PLANS];
 static int g_plan_count = 0;
-static esp_websocket_client_handle_t g_ws_client = NULL;
+esp_websocket_client_handle_t g_ws_client = NULL;
 
 // 记录上次定时计划执行的时间（按计划索引）
 static time_t g_last_plan_exec[MAX_FEEDING_PLANS] = {0};
+
+// WebSocket重连标志
+volatile bool g_ws_need_reconnect = false;
 
 esp_err_t feeding_plan_save_all_to_spiffs(void) {
     cJSON *arr = cJSON_CreateArray();
@@ -237,13 +240,16 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base, i
             break;
         case WEBSOCKET_EVENT_DISCONNECTED:
             ESP_LOGI(TAG, "WebSocket disconnected");
+            // 只设置重连标志，由专门任务处理重连
+            g_ws_need_reconnect = true;
             break;
         case WEBSOCKET_EVENT_DATA:
             if (data->data_len > 0) {
                 ESP_LOGI(TAG, "Received data: %.*s", data->data_len, (char *)data->data_ptr);
-                char msg[256] = {0};
+                char msg[1024] = {0};
                 int len = data->data_len < sizeof(msg) - 1 ? data->data_len : sizeof(msg) - 1;
                 memcpy(msg, data->data_ptr, len);
+                ESP_LOGI(TAG, "WebSocket收到原始数据: %s", msg);
                 cJSON *root = cJSON_Parse(msg);
                 if (root) {
                     cJSON *type_item = cJSON_GetObjectItem(root, "type");
@@ -290,7 +296,7 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base, i
                             snprintf(confirm_msg, sizeof(confirm_msg),
                                 "{\"type\":\"confirm_delete_feeding_plan\",\"device_id\":\"%s\",\"day_of_week\":%d,\"hour\":%d,\"minute\":%d,\"feeding_amount\":%.1f}",
                                 device_id, day_of_week, hour_val, minute_val, feeding_amount);
-                            esp_websocket_client_send_text(g_ws_client, confirm_msg, strlen(confirm_msg), portMAX_DELAY);
+                            esp_websocket_client_send_text(client, confirm_msg, strlen(confirm_msg), portMAX_DELAY);
                             ESP_LOGI(TAG, "已回复删除计划确认: %s", confirm_msg);
                         } else if (strcmp(type_item->valuestring, "delete_manual_feeding") == 0) {
                             cJSON *hour = cJSON_GetObjectItem(root, "hour");
@@ -323,7 +329,7 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base, i
                             snprintf(confirm_msg, sizeof(confirm_msg),
                                 "{\"type\":\"confirm_delete_manual_feeding\",\"device_id\":\"%s\",\"hour\":%d,\"minute\":%d,\"feeding_amount\":%.1f}",
                                 device_id, hour_val, minute_val, feeding_amount);
-                            esp_websocket_client_send_text(g_ws_client, confirm_msg, strlen(confirm_msg), portMAX_DELAY);
+                            esp_websocket_client_send_text(client, confirm_msg, strlen(confirm_msg), portMAX_DELAY);
                             ESP_LOGI(TAG, "已回复删除手动喂食确认: %s", confirm_msg);
                         } else if (strcmp(type_item->valuestring, "feeding_plan") == 0 || cJSON_GetObjectItem(root, "day_of_week")) {
                             ESP_LOGI(TAG, "收到喂食计划: %s", msg);
@@ -342,7 +348,7 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base, i
                             snprintf(confirm_msg, sizeof(confirm_msg),
                                 "{\"type\":\"confirm_feeding_plan\",\"device_id\":\"%s\",\"day_of_week\":%d,\"hour\":%d,\"minute\":%d,\"feeding_amount\":%.1f}",
                                 device_id, day_of_week, hour, minute, feeding_amount);
-                            esp_websocket_client_send_text(g_ws_client, confirm_msg, strlen(confirm_msg), portMAX_DELAY);
+                            esp_websocket_client_send_text(client, confirm_msg, strlen(confirm_msg), portMAX_DELAY);
                             ESP_LOGI(TAG, "已回复计划确认: %s", confirm_msg);
                         } else if (strcmp(type_item->valuestring, "manual_feeding") == 0 || (cJSON_GetObjectItem(root, "hour") && cJSON_GetObjectItem(root, "minute") && cJSON_GetObjectItem(root, "feeding_amount"))) {
                             ESP_LOGI(TAG, "收到手动喂食: %s", msg);
@@ -378,8 +384,61 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base, i
                             snprintf(confirm_msg, sizeof(confirm_msg),
                                 "{\"type\":\"confirm_manual_feeding\",\"device_id\":\"%s\",\"hour\":%d,\"minute\":%d,\"feeding_amount\":%.1f,\"timestamp\":%lld}",
                                 device_id, hour, minute, amount, timestamp);
-                            esp_websocket_client_send_text(g_ws_client, confirm_msg, strlen(confirm_msg), portMAX_DELAY);
+                            esp_websocket_client_send_text(client, confirm_msg, strlen(confirm_msg), portMAX_DELAY);
                             ESP_LOGI(TAG, "已回复手动喂食确认: %s", confirm_msg);
+                        } else if (strcmp(type_item->valuestring, "sync_request") == 0) {
+                            ESP_LOGI(TAG, "收到sync_request消息，准备上报sync_result");
+                            // 组装sync_result
+                            const char *device_id = device_manager_get_device_id();
+                            float grain_weight = 0.0f;
+                            extern float HX711_get_units(char times); // 确保有此函数
+                            grain_weight = HX711_get_units(10);
+                            cJSON *result = cJSON_CreateObject();
+                            cJSON_AddStringToObject(result, "type", "sync_result");
+                            cJSON_AddStringToObject(result, "device_id", device_id);
+                            cJSON_AddNumberToObject(result, "grain_weight", grain_weight);
+                            // feeding_plans
+                            cJSON *plans_arr = cJSON_CreateArray();
+                            int plan_count = feeding_plan_count();
+                            for (int i = 0; i < plan_count; ++i) {
+                                const feeding_plan_t *plan = feeding_plan_get(i);
+                                if (plan) {
+                                    cJSON *plan_obj = cJSON_CreateObject();
+                                    cJSON_AddNumberToObject(plan_obj, "day_of_week", plan->day_of_week);
+                                    cJSON_AddNumberToObject(plan_obj, "hour", plan->hour);
+                                    cJSON_AddNumberToObject(plan_obj, "minute", plan->minute);
+                                    cJSON_AddNumberToObject(plan_obj, "feeding_amount", plan->feeding_amount);
+                                    cJSON_AddItemToArray(plans_arr, plan_obj);
+                                }
+                            }
+                            cJSON_AddItemToObject(result, "feeding_plans", plans_arr);
+                            // manual_feedings
+                            cJSON *manual_arr = cJSON_CreateArray();
+                            int manual_count = get_manual_feedings_count();
+                            for (int i = 0; i < manual_count; ++i) {
+                                manual_feeding_t *mf = get_manual_feeding(i);
+                                if (mf) {
+                                    cJSON *mf_obj = cJSON_CreateObject();
+                                    cJSON_AddNumberToObject(mf_obj, "hour", mf->hour);
+                                    cJSON_AddNumberToObject(mf_obj, "minute", mf->minute);
+                                    cJSON_AddNumberToObject(mf_obj, "feeding_amount", mf->feeding_amount);
+                                    cJSON_AddBoolToObject(mf_obj, "is_confirmed", true); // 默认已确认
+                                    cJSON_AddBoolToObject(mf_obj, "is_executed", mf->executed);
+                                    if (mf->executed) {
+                                        // 这里假设有executed_at字段，若无可置为0或null
+                                        cJSON_AddNumberToObject(mf_obj, "executed_at", (double)time(NULL));
+                                    } else {
+                                        cJSON_AddNullToObject(mf_obj, "executed_at");
+                                    }
+                                    cJSON_AddItemToArray(manual_arr, mf_obj);
+                                }
+                            }
+                            cJSON_AddItemToObject(result, "manual_feedings", manual_arr);
+                            char *json_str = cJSON_PrintUnformatted(result);
+                            esp_websocket_client_send_text(client, json_str, strlen(json_str), portMAX_DELAY);
+                            ESP_LOGI(TAG, "已回复sync_result: %s", json_str);
+                            cJSON_Delete(result);
+                            free(json_str);
                         } else {
                             ESP_LOGI(TAG, "收到其它消息: %s", msg);
                         }
@@ -402,7 +461,7 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base, i
                         snprintf(confirm_msg, sizeof(confirm_msg),
                             "{\"type\":\"confirm_feeding_plan\",\"device_id\":\"%s\",\"day_of_week\":%d,\"hour\":%d,\"minute\":%d,\"feeding_amount\":%.1f}",
                             device_id, day_of_week, hour, minute, feeding_amount);
-                        esp_websocket_client_send_text(g_ws_client, confirm_msg, strlen(confirm_msg), portMAX_DELAY);
+                        esp_websocket_client_send_text(client, confirm_msg, strlen(confirm_msg), portMAX_DELAY);
                         ESP_LOGI(TAG, "已回复计划确认: %s", confirm_msg);
                     } else if (cJSON_GetObjectItem(root, "hour") && cJSON_GetObjectItem(root, "minute") && cJSON_GetObjectItem(root, "feeding_amount")) {
                         ESP_LOGI(TAG, "收到手动喂食: %s", msg);
@@ -438,7 +497,7 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base, i
                         snprintf(confirm_msg, sizeof(confirm_msg),
                             "{\"type\":\"confirm_manual_feeding\",\"device_id\":\"%s\",\"hour\":%d,\"minute\":%d,\"feeding_amount\":%.1f,\"timestamp\":%lld}",
                             device_id, hour, minute, amount, timestamp);
-                        esp_websocket_client_send_text(g_ws_client, confirm_msg, strlen(confirm_msg), portMAX_DELAY);
+                        esp_websocket_client_send_text(client, confirm_msg, strlen(confirm_msg), portMAX_DELAY);
                         ESP_LOGI(TAG, "已回复手动喂食确认: %s", confirm_msg);
                     } else {
                         ESP_LOGI(TAG, "收到其它消息: %s", msg);
@@ -453,6 +512,20 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base, i
     }
 }
 
+// WebSocket重连任务
+void websocket_reconnect_task(void *arg) {
+    while (1) {
+        if (g_ws_need_reconnect) {
+            ESP_LOGI(TAG, "检测到WebSocket断开，2秒后重连...");
+            vTaskDelay(pdMS_TO_TICKS(2000));
+            esp_websocket_client_stop(g_ws_client);
+            esp_websocket_client_start(g_ws_client);
+            g_ws_need_reconnect = false;
+        }
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+}
+
 void websocket_client_start(void) {
     feeding_plan_load_all_from_spiffs(); // 启动时加载所有计划
 
@@ -462,4 +535,6 @@ void websocket_client_start(void) {
     g_ws_client = esp_websocket_client_init(&ws_cfg);
     esp_websocket_register_events(g_ws_client, WEBSOCKET_EVENT_ANY, websocket_event_handler, (void *)g_ws_client);
     esp_websocket_client_start(g_ws_client);
+    // 启动WebSocket重连任务
+    xTaskCreate(websocket_reconnect_task, "ws_reconnect", 2048, NULL, 5, NULL);
 } 
