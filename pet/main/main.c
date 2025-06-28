@@ -43,6 +43,7 @@
 #include "app_timer.h"
 #include "websocket_client.h"
 #include "esp_https_ota.h"
+#include "version.h"
 #define PCM_FILE_PATH "/spiffs/test.pcm"
 #define BUFFER_SIZE 512
 
@@ -146,6 +147,12 @@ void app_main(void)
     }
     ESP_ERROR_CHECK(ret);
 
+    // 初始化版本管理器
+    if (version_manager_init() == ESP_OK) {
+        ESP_LOGI("main", "版本管理器初始化成功");
+    } else {
+        ESP_LOGE("main", "版本管理器初始化失败");
+    }
 
     bsp_spiffs_mount();
     key_init();

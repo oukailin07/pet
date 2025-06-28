@@ -24,7 +24,7 @@ static void app_wifi_handler(void *event_handler_arg, esp_event_base_t event_bas
         esp_wifi_connect();
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
         if (s_retry_num < 5) {
-            //esp_wifi_connect();
+            esp_wifi_connect();
             s_retry_num++;
             ESP_LOGI(TAG, "retry to connect to the AP");
         } else {

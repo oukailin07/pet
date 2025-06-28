@@ -21,6 +21,7 @@ idf_component_register(SRCS "main.c"
                             "./driver/device/device_manager.c"
                             "./driver/mqtt_client/my_mqtt_client.c"
                             "./driver/websocket_client/websocket_client.c"
+                            "version.c"
 
 
 INCLUDE_DIRS "." "./WIFI" 
