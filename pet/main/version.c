@@ -51,22 +51,9 @@ const hardware_version_t* get_hardware_version(void) {
 }
 
 int get_version_string(const firmware_version_t *version, char *buffer, size_t size) {
-    if (!version || !buffer || size == 0) {
-        return -1;
-    }
-    
-    int len = snprintf(buffer, size, "v%d.%d.%d", 
-                      version->major, version->minor, version->patch);
-    
-    if (version->build > 0 && len < size - 1) {
-        len += snprintf(buffer + len, size - len, "-%d", version->build);
-    }
-    
-    if (strlen(version->suffix) > 0 && len < size - 1) {
-        len += snprintf(buffer + len, size - len, "-%s", version->suffix);
-    }
-    
-    return len;
+    // 只输出主.次.补丁
+    snprintf(buffer, size, "%d.%d.%d", version->major, version->minor, version->patch);
+    return 0;
 }
 
 bool check_firmware_compatibility(const firmware_version_t *current, 

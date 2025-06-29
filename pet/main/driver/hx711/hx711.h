@@ -1,3 +1,4 @@
+
 #ifndef HX711_h
 #define HX711_h
 
@@ -13,9 +14,9 @@
 
 typedef enum HX711_GAIN
 {
-	eGAIN_128 = 1,
-	eGAIN_64 = 3,
-	eGAIN_32 = 2
+eGAIN_128 = 1,
+eGAIN_64 = 3,
+eGAIN_32 = 2
 }HX711_GAIN;
 
 
@@ -73,13 +74,7 @@ void HX711_power_down();
 // wakes up the chip after power down mode
 void HX711_power_up();
 
-// 重置校准参数
-void HX711_reset_calibration();
-
-// 打印当前校准状态
-void HX711_print_calibration_status();
 
 void weight_reading_task(void* arg);
 void initialise_weight_sensor(void);
-
 #endif

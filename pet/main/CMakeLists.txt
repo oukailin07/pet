@@ -19,7 +19,6 @@ idf_component_register(SRCS "main.c"
                             "./driver/feeding/feeding_manager.c"
                             "./driver/feeding/feeding_http_handler.c"
                             "./driver/device/device_manager.c"
-                            "./driver/mqtt_client/my_mqtt_client.c"
                             "./driver/websocket_client/websocket_client.c"
                             "version.c"
 
@@ -39,10 +38,8 @@ INCLUDE_DIRS "." "./WIFI"
             "./driver/timer"
             "./driver/feeding"
             "./driver/device"
-            "./driver/mqtt_client"
             "./driver/websocket_client"
 EMBED_FILES "./web_server/index.html"
 EMBED_TXTFILES
-        "tuya_root_cert.pem"
 
 )

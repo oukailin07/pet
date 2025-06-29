@@ -118,7 +118,6 @@ idf_component_register(SRCS "main.c"
                             "./driver/mqtt_client"
                             EMBED_FILES "./web_server/index.html"
                             EMBED_TXTFILES
-                                    "tuya_root_cert.pem"
                             )
 ```
 

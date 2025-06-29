@@ -2,6 +2,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/event_groups.h"
+#include "freertos/timers.h"
 #include "nvs_flash.h"
 #include "esp_vfs_fat.h"
 #include <netdb.h>
@@ -36,7 +37,6 @@
 #include "ConnectWIFI.h"
 #include "http_tts.h"
 #include "key.h"
-#include "my_mqtt_client.h"
 #include "time_utils.h"
 #include "feeding_manager.h"
 #include "device_manager.h"
@@ -49,6 +49,10 @@
 
 play_state_t play_state = PLAY_STATE_PAUSED; // 播放状态
 char ip_address[16] = {0}; // 用于存储IP地址
+
+// 全局变量
+static TimerHandle_t feeding_timer = NULL;
+static bool feeding_check_flag = false; // 新增：喂食检查标志
 
 hal_i2s_pin_t hal_i2s_pin = {
     .bclk_pin = GPIO_NUM_14,
@@ -64,18 +68,6 @@ hal_i2s_pin_t hal_i2s_pin = {
 /*
     测试语音唤醒是否正常
 */
-
-#include <stdio.h>
-#include <string.h>
-#include <time.h>
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "esp_log.h"
-#include "mqtt_client.h"
-#include "mbedtls/md.h"
-#include "cJSON.h"
-#include "wifi_status_manager.h"   // 新增
-#define TAG "TUYA_MQTT"
 
 // WiFi状态变化回调函数
 static void wifi_status_callback(bool connected)
@@ -128,10 +120,18 @@ void sync_time_sntp(void)
     }
 }
 
+// 定时器回调函数
+void feeding_timer_callback(TimerHandle_t xTimer) {
+    // 只设置标志位，不执行任何复杂逻辑
+    feeding_check_flag = true;
+}
+
 // 自动喂食计划定时任务
 void feeding_plan_task(void *arg) {
+    ESP_LOGI("main", "=== 自动喂食计划定时任务启动 ===");
+    ESP_LOGI("main", "=== 任务启动时可用堆内存: %lu 字节 ===", esp_get_free_heap_size());
     while (1) {
-        ESP_LOGI("main", "自动喂食计划定时任务");
+        ESP_LOGI("main", "=== 执行自动喂食计划定时任务 ===");
         feeding_plan_check_and_execute();
         vTaskDelay(pdMS_TO_TICKS(1000)); // 每秒检查一次
     }
@@ -197,8 +197,8 @@ void app_main(void)
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));    
     // 统一启动WiFi状态管理器并连接WiFi
-    if (wifi_status_manager_start("adol-3466", "12345678", wifi_status_callback) == ESP_OK) {
-    // if (wifi_status_manager_start("CMCC-CMRk", "15221655636", wifi_status_callback) == ESP_OK) {
+    // if (wifi_status_manager_start("adol-3466", "12345678", wifi_status_callback) == ESP_OK) {
+    if (wifi_status_manager_start("CMCC-CMRk", "15221655636", wifi_status_callback) == ESP_OK) {
         ESP_LOGI("main", "WiFi状态管理器启动并连接成功");
     } else {
         ESP_LOGE("main", "WiFi状态管理器启动或连接失败");
@@ -261,15 +261,41 @@ void app_main(void)
         ESP_LOGI("main", "设备ID: 未初始化，等待服务器分配");
     }
     
-    //tuya_mqtt_start();
     // 启动WebSocket客户端
     websocket_client_start();
-
-    // 启动自动喂食计划定时任务
-    xTaskCreatePinnedToCore(feeding_plan_task, "feeding_plan_task", 4096, NULL, 5, NULL,1);
-
-    // 启动OTA任务（可根据实际需求放到按键/菜单/定时等触发）
-    // xTaskCreate(&ota_task, "ota_task", 8192, NULL, 5, NULL);
+    
+    // 等待系统稳定后再创建自动喂食计划定时任务
+    vTaskDelay(pdMS_TO_TICKS(3000)); // 等待3秒让系统稳定
+    
+    // 启动自动喂食计划定时器
+    ESP_LOGI("main", "=== 准备创建自动喂食计划定时器 ===");
+    ESP_LOGI("main", "=== 可用堆内存: %lu 字节 ===", esp_get_free_heap_size());
+    ESP_LOGI("main", "=== 最小可用堆内存: %lu 字节 ===", esp_get_minimum_free_heap_size());
+    
+    // 使用定时器替代任务，避免栈溢出问题
+    feeding_timer = xTimerCreate("feeding_timer", pdMS_TO_TICKS(1000), pdTRUE, NULL, feeding_timer_callback);
+    if (feeding_timer != NULL) {
+        if (xTimerStart(feeding_timer, 0) == pdPASS) {
+            ESP_LOGI("main", "=== 自动喂食计划定时器创建并启动成功 ===");
+        } else {
+            ESP_LOGE("main", "=== 定时器启动失败 ===");
+        }
+    } else {
+        ESP_LOGE("main", "=== 定时器创建失败 ===");
+    }
+    
+    // 主循环
+    while (1) {
+        // 检查喂食计划标志
+        if (feeding_check_flag) {
+            feeding_check_flag = false; // 清除标志
+            ESP_LOGI("main", "=== 执行喂食计划检查 ===");
+            feeding_plan_check_and_execute();
+        }
+        
+        // 其他任务
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
 }
 
 

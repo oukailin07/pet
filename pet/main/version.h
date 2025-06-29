@@ -12,7 +12,7 @@ extern "C" {
 #define FIRMWARE_VERSION_MAJOR    1
 #define FIRMWARE_VERSION_MINOR    0
 #define FIRMWARE_VERSION_PATCH    0
-#define FIRMWARE_VERSION_BUILD    1
+#define FIRMWARE_VERSION_BUILD    0
 #define FIRMWARE_VERSION_SUFFIX   "stable"
 
 // 协议版本定义

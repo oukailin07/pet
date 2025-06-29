@@ -1,4 +1,5 @@
 #include "motor.h"
+#include "esp_log.h"
 
 //电机控制
 /*
@@ -65,4 +66,28 @@ static void motor_crl_init(void)
 void motor_init(void)
 {
     motor_crl_init(); //电机控制引脚初始化
+}
+
+// 喂食函数：每10克电机转动1秒钟
+void motor_feed(float amount_grams)
+{
+    if (amount_grams <= 0) {
+        return; // 无效的喂食量
+    }
+    
+    // 计算转动时间：每10克1秒
+    int feed_time_ms = (int)(amount_grams * 100); // 转换为毫秒
+    
+    ESP_LOGI("MOTOR", "开始喂食: %.1fg, 转动时间: %dms", amount_grams, feed_time_ms);
+    
+    // 启动电机正转
+    motor_control(MOTOR_FORWARD);
+    
+    // 等待指定时间
+    vTaskDelay(pdMS_TO_TICKS(feed_time_ms));
+    
+    // 停止电机
+    motor_control(MOTOR_STOP);
+    
+    ESP_LOGI("MOTOR", "喂食完成: %.1fg", amount_grams);
 }

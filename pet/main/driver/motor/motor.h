@@ -21,5 +21,6 @@ enum motor_ctr_cmd//电机控制状态
 
 void motor_control(char motor_cmd);//电机控制函数
 void motor_init(void);//电机初始化函数
+void motor_feed(float amount_grams);//喂食函数，根据克数控制电机转动时间
 
 #endif
