@@ -20,6 +20,7 @@
 #include "app_timer.h"
 #include "motor.h"
 #include "http_tts.h"
+#include "hx711.h"
 static const char *TAG = "APP_SR";
 
 
@@ -36,7 +37,7 @@ static esp_afe_sr_iface_t *afe_handle = NULL;
 static volatile int task_flag = 0;
 static model_iface_data_t       *model_data     = NULL;
 static const esp_mn_iface_t     *multinet       = NULL;
-const char *cmd_phoneme[8] = {
+const char *cmd_phoneme[10] = {
     "chu liang",
     "qing chu liang",
     "chu yi fen liang",
@@ -44,7 +45,9 @@ const char *cmd_phoneme[8] = {
     "chu san fen liang",
     "chu si fen liang",
     "chu wu fen liang",
-    "she bei di zhi"
+    "she bei di zhi",
+    "she bei xing xi",
+    "zi jian mo shi",
 };
 
 esp_err_t app_sr_init(void)
@@ -231,59 +234,66 @@ void sr_handler_task(void *pvParam)
         {
             switch (result.command_id)
             {
+                ESP_LOGI(TAG, "command_id: %d, phrase_id: %d", result.command_id, 0);
                 case 0:
                     /* 出粮 */
-                    ESP_LOGI(TAG, "command_id: %d, phrase_id: %d", result.command_id, 0);
                     ESP_ERROR_CHECK(audio_app_player_music_queue("/spiffs/out_one_food.mp3"));
                     motor_control(MOTOR_FORWARD);
                     create_one_shot_timer(1);
                     break;
                 case 1:
                     /* 请出粮 */
-                    ESP_LOGI(TAG, "command_id: %d, phrase_id: %d", result.command_id, 0);
                     ESP_ERROR_CHECK(audio_app_player_music_queue("/spiffs/out_one_food.mp3"));
                     motor_control(MOTOR_FORWARD);
                     create_one_shot_timer(1);
                     break;
                 case 2:
-                    ESP_LOGI(TAG, "command_id: %d, phrase_id: %d", result.command_id, 0);
                     /* 出一份粮 */
                     ESP_ERROR_CHECK(audio_app_player_music_queue("/spiffs/out_one_food.mp3"));
                     motor_control(MOTOR_FORWARD);
                     create_one_shot_timer(1);
                     break;
                 case 3:
-                    ESP_LOGI(TAG, "command_id: %d, phrase_id: %d", result.command_id, 0);
+                    ESP_ERROR_CHECK(audio_app_player_music_queue("/spiffs/out_one_food.mp3"));
                     motor_control(MOTOR_FORWARD);
                     create_one_shot_timer(2);
                     /* 出两份粮 */
                     break;
                 case 4:
-                    ESP_LOGI(TAG, "command_id: %d, phrase_id: %d", result.command_id, 0);
+                    ESP_ERROR_CHECK(audio_app_player_music_queue("/spiffs/out_one_food.mp3"));
                     motor_control(MOTOR_FORWARD);
                     create_one_shot_timer(3);   
                     /* 出三分粮 */
                     break;
                 case 5:
-                    ESP_LOGI(TAG, "command_id: %d, phrase_id: %d", result.command_id, 0);
+                    ESP_ERROR_CHECK(audio_app_player_music_queue("/spiffs/out_one_food.mp3"));
                     motor_control(MOTOR_FORWARD);
                     create_one_shot_timer(4);
                     /* 出四分粮 */
                     break;
                 case 6:
-                    ESP_LOGI(TAG, "command_id: %d, phrase_id: %d", result.command_id, 0);
+                    ESP_ERROR_CHECK(audio_app_player_music_queue("/spiffs/out_one_food.mp3"));
                     motor_control(MOTOR_FORWARD);
                     create_one_shot_timer(5);
-                    /* 出五份粮 */
                     break;
-                case 7:
-                    ESP_LOGI(TAG, "command_id: %d, phrase_id: %d", result.command_id, 0);
+                case 7://保存ip地址语音tts
                     /* code */
-                    ESP_ERROR_CHECK(audio_app_player_music_queue(MP3_SAVE_PATH));
+                    ESP_ERROR_CHECK(audio_app_player_music_queue(MP3_SAVE_PATH_IP));
                     break;
-                case 8:
-                    ESP_LOGI(TAG, "command_id: %d, phrase_id: %d", result.command_id, 0);
+                case 8://设备信息
                     /* code */
+                    ESP_ERROR_CHECK(audio_app_player_music_queue(MP3_SAVE_PATH_DEVICE_ID));
+                    ESP_ERROR_CHECK(audio_app_player_music_queue(MP3_SAVE_PATH_PASSWORD));
+                    break;
+                case 9://自检模式
+                    /* code */
+                    break;
+                case 10: // "已放入" 语音命令
+                    hx711_trigger_calibration();
+                    break;
+                case 11: // "重新配重" 语音命令
+                    HX711_tare();
+                    printf("[TTS] 已重新去皮，请放上90克进行校准。\n");
                     break;
                 default:
                     break;

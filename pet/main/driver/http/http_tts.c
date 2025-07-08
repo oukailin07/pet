@@ -11,9 +11,12 @@ size_t text_url_encode_size = 0;
 
 static const char *TAG = "HTTP_BAIDU";
 static FILE *mp3_file = NULL;
+static const char *current_filename = MP3_SAVE_PATH_DEFAULT; // 当前使用的文件名
 extern i2s_chan_handle_t i2s_tx_chan;
 #define MAX_PCM_CHUNK_SIZE 16 * 1024
-static int16_t *stereo_buf = NULL;
+
+// 前向声明
+static void http_tts_request(const char *text);
 
 esp_err_t app_http_baidu_tts_event_handler(esp_http_client_event_t *evt)
 {
@@ -26,9 +29,9 @@ esp_err_t app_http_baidu_tts_event_handler(esp_http_client_event_t *evt)
             ESP_LOGI(TAG, "Received length: %d", evt->data_len);
             if (!mp3_file) {
                 // 打开文件（清空旧内容）
-                mp3_file = fopen(MP3_SAVE_PATH, "wb");
+                mp3_file = fopen(current_filename, "wb");
                 if (!mp3_file) {
-                    ESP_LOGE(TAG, "Failed to open MP3 file for writing");
+                    ESP_LOGE(TAG, "Failed to open MP3 file for writing: %s", current_filename);
                     return ESP_FAIL;
                 }
             }
@@ -40,8 +43,8 @@ esp_err_t app_http_baidu_tts_event_handler(esp_http_client_event_t *evt)
             if (mp3_file) {
                 fclose(mp3_file);
                 mp3_file = NULL;
-                ESP_LOGI(TAG, "MP3 saved to: %s", MP3_SAVE_PATH);
-                //ESP_ERROR_CHECK(audio_app_player_music_queue(MP3_SAVE_PATH));
+                ESP_LOGI(TAG, "MP3 saved to: %s", current_filename);
+                //ESP_ERROR_CHECK(audio_app_player_music_queue(current_filename));
             }
             break;
 
@@ -60,21 +63,88 @@ esp_err_t app_http_baidu_tts_event_handler(esp_http_client_event_t *evt)
     return ESP_OK;
 }
 
+// 设置当前使用的文件名
+static void set_current_filename(const char *filename)
+{
+    current_filename = filename ? filename : MP3_SAVE_PATH_DEFAULT;
+}
+
 void http_get_ip_tts(char *ip)
 {
-    ESP_LOGI(TAG, "HTTP TTS get IP: %s", ip);
+    char text[128] = {0};
+    sprintf(text, "设备 IP 是：%s", ip);
+    set_current_filename(MP3_SAVE_PATH_IP);
+    http_tts_request(text);
+}
+
+void http_get_device_id_tts(char *device_id)
+{
+    char text[128] = {0};
+    sprintf(text, "设备 ID 是：%s", device_id);
+    set_current_filename(MP3_SAVE_PATH_DEVICE_ID);
+    http_tts_request(text);
+}
+
+void http_get_password_tts(char *password)
+{
+    char text[128] = {0};
+    sprintf(text, "设备密码是：%s", password);
+    set_current_filename(MP3_SAVE_PATH_PASSWORD);
+    http_tts_request(text);
+}
+
+void http_get_custom_tts(const char *text)
+{
+    set_current_filename(MP3_SAVE_PATH_CUSTOM);
+    http_tts_request(text);
+}
+
+// 支持自定义文件名的函数
+void http_get_ip_tts_with_filename(char *ip, const char *filename)
+{
+    char text[128] = {0};
+    sprintf(text, "设备 IP 是：%s", ip);
+    set_current_filename(filename);
+    http_tts_request(text);
+}
+
+void http_get_device_id_tts_with_filename(char *device_id, const char *filename)
+{
+    char text[128] = {0};
+    sprintf(text, "设备 ID 是：%s", device_id);
+    set_current_filename(filename);
+    http_tts_request(text);
+}
+
+void http_get_password_tts_with_filename(char *password, const char *filename)
+{
+    char text[128] = {0};
+    sprintf(text, "设备密码是：%s", password);
+    set_current_filename(filename);
+    http_tts_request(text);
+}
+
+void http_get_custom_tts_with_filename(const char *text, const char *filename)
+{
+    set_current_filename(filename);
+    http_tts_request(text);
+}
+
+// 通用TTS函数，减少代码重复
+static void http_tts_request(const char *text)
+{
+    ESP_LOGI(TAG, "HTTP TTS request: %s", text);
+    ESP_LOGI(TAG, "Saving to file: %s", current_filename);
     // Http
     esp_http_client_config_t config = {
         .method = HTTP_METHOD_POST,
         .event_handler = app_http_baidu_tts_event_handler,
         .buffer_size = 20 * 1024,  // 20 KB
         .buffer_size_tx = 20 * 1024,  // 20 KB 发送缓冲
-        .timeout_ms = 30000, // 设置超时时间为 10 秒
+        .timeout_ms = 30000, // 设置超时时间为 30 秒
         .transport_type = HTTP_TRANSPORT_OVER_SSL,
         
     };
-    char text[128] = {0};
-    sprintf(text, "设备 IP 是：%s", ip);
     config.url = url;
     client = esp_http_client_init(&config);
     esp_http_client_set_method(client, HTTP_METHOD_POST);

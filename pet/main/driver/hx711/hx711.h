@@ -77,4 +77,16 @@ void HX711_power_up();
 
 void weight_reading_task(void* arg);
 void initialise_weight_sensor(void);
+
+// 校准相关接口
+typedef enum {
+    HX711_CALIB_NOT_CALIBRATED = 0,
+    HX711_CALIB_IN_PROGRESS,
+    HX711_CALIB_DONE
+} hx711_calib_state_t;
+
+void hx711_start_calibration_task(void);
+void hx711_trigger_calibration(void);
+hx711_calib_state_t hx711_get_calib_state(void);
+
 #endif

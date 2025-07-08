@@ -5,6 +5,8 @@
 #include "esp_websocket_client.h"
 #include "device_manager.h"
 #include "websocket_client.h"
+#include "key.h"
+#include "app_sr.h"
 
 #define HIGH 1
 #define LOW 0
@@ -23,6 +25,56 @@ static const char* TAG = "HX711_TEST";
 
 // Global variables for weight reporting
 static float last_reported_weight = 0.0f;
+
+static bool hx711_calibrated = false;
+static hx711_calib_state_t hx711_calib_state = HX711_CALIB_NOT_CALIBRATED;
+static TaskHandle_t calib_task_handle = NULL;
+
+// 校准任务
+static void hx711_calibration_task(void *arg) {
+    while (!hx711_calibrated) {
+        if (hx711_calib_state == HX711_CALIB_NOT_CALIBRATED) {
+            printf("[TTS] 称重模块未校准，请放入90克的进行校准，放入后请短按按键或者请说已放入。\n");
+        }
+        vTaskDelay(pdMS_TO_TICKS(30000));
+    }
+    vTaskDelete(NULL);
+}
+
+void hx711_start_calibration_task(void) {
+    if (calib_task_handle == NULL) {
+        xTaskCreatePinnedToCore(hx711_calibration_task, "hx711_calib_task", 2048, NULL, 2, &calib_task_handle, 1);
+    }
+}
+
+// 外部触发校准（按键/语音）
+void hx711_trigger_calibration(void) {
+    if (hx711_calib_state == HX711_CALIB_DONE) {
+        printf("[TTS] 称重模块已校准，无需重复校准。\n");
+        return;
+    }
+    hx711_calib_state = HX711_CALIB_IN_PROGRESS;
+    printf("[TTS] 检测到校准触发，正在校准...\n");
+    // 实际校准流程
+    HX711_tare();
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    unsigned long raw = HX711_get_value(10);
+    float known_weight_g = 90.0f;
+    if (raw < 10000) { // 简单判断是否有物体
+        printf("[TTS] 校准失败，请确保已放入90克的砝码。\n");
+        hx711_calib_state = HX711_CALIB_NOT_CALIBRATED;
+        return;
+    }
+    float scale = raw / known_weight_g;
+    HX711_set_scale(scale);
+    hx711_calibrated = true;
+    hx711_calib_state = HX711_CALIB_DONE;
+    printf("[TTS] 校准成功，可以正常使用。\n");
+}
+
+hx711_calib_state_t hx711_get_calib_state(void) {
+    return hx711_calib_state;
+}
 
 void HX711_init(gpio_num_t dout, gpio_num_t pd_sck, HX711_GAIN gain )
 {
@@ -190,46 +242,30 @@ void HX711_power_up()
 gpio_set_level(GPIO_PD_SCK, LOW);
 }
 
-
-
-
-
-
+// 修改weight_reading_task，启动时检测校准状态
 void weight_reading_task(void* arg)
 {
-HX711_init(GPIO_DATA, GPIO_SCLK, eGAIN_128); 
-
-// 第一步：清零（无物体）
-HX711_tare();
-    ESP_LOGI(TAG, "完成去皮，请放上一个已知重量的物体（如500g水）...");
-    ESP_LOGI(TAG, "完成去皮,请放上一个已知重量的物体(如500g水)...");
-vTaskDelay(pdMS_TO_TICKS(5000));  // 等你手动放上去
-
-// 第二步：读数并设置校准比例
-unsigned long raw = HX711_get_value(10);  // 获取校准时的读数
-float known_weight_g = 180.0f; // 例如你放的是一瓶500g矿泉水
-float scale = raw / known_weight_g;
-HX711_set_scale(scale);
-ESP_LOGI(TAG, "设置scale = %.2f", scale);
-
-// 循环读取重量（单位：克）
-float weight;
+    HX711_init(GPIO_DATA, GPIO_SCLK, eGAIN_128);
+    hx711_calibrated = false;
+    hx711_calib_state = HX711_CALIB_NOT_CALIBRATED;
+    hx711_start_calibration_task();
+    // 等待校准完成
+    while (!hx711_calibrated) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+    // 校准完成后，进入正常称重逻辑
+    float weight;
     while (1)
     {
         weight = HX711_get_units(AVG_SAMPLES);
-        
-        // 添加调试信息
         if (weight != 0.0f) {
             ESP_LOGI(TAG, "******* weight = %.2fg *********", weight);
         } else {
             ESP_LOGW(TAG, "重量读数为0，可能传感器异常");
         }
-        
         if (fabs(weight - last_reported_weight) >= REPORT_THRESHOLD) {
-            // 只保留一位小数
             float rounded_weight = roundf(weight * 10.0f) / 10.0f;
             ESP_LOGI(TAG, "检测到粮桶重量变化，自动上报: %.1fg", rounded_weight);
-            // WebSocket上报粮桶重量
             if (g_ws_client && esp_websocket_client_is_connected(g_ws_client)) {
                 const char* device_id = device_manager_get_device_id();
                 char ws_msg[128];
@@ -245,7 +281,7 @@ float weight;
         }
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
-	vTaskDelete(NULL);
+    vTaskDelete(NULL);
 }
 
 void initialise_weight_sensor(void)
